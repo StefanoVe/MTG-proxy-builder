@@ -32,6 +32,8 @@ Per carte da **63 × 88 mm**, stampa il PDF al **100%**. Per le carte a due facc
 
 Per una carta con due facce disponibili, usa **Fronte** e **Retro** sotto l’anteprima per modificare separatamente testo, illustrazione e cornice. Le modifiche al testo attivano il template sulla faccia selezionata; il PDF e le immagini esportate usano le stesse impostazioni.
 
+Le facce orizzontali, incluse le battaglie e le carte split, sono mostrate ed esportate con orientamento orizzontale. Nel PDF vengono ruotate per occupare uno spazio di 63 × 88 mm, mantenendo l’allineamento fronte-retro. Nei template delle carte split il testo delle sezioni è modificabile insieme nel campo testo.
+
 <details>
 <summary>Set di cornici e simboli nel testo</summary>
 

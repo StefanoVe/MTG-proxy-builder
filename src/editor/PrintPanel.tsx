@@ -79,7 +79,7 @@ export function PrintPanel({ project, onExport, onBusy }: { project: Project; on
         <div className="paper" aria-label={t('sheetPreview')} style={{ aspectRatio: `${paperW} / ${paperH}` }}>
           {sheet.slots.map(({ card, x, y }, slot) => <div key={`${current}/${slot}`} className="paper-card" style={{
             left: `${(x - margin) / paperW * 100}%`, top: `${(y - margin) / paperH * 100}%`, width: `${(cardWidth + 2 * margin) / paperW * 100}%`, height: `${(cardHeight + 2 * margin) / paperH * 100}%`
-          }}><Preview card={card} back={sheet.back} bleedSettings={settings} /></div>)}
+          }}><Preview card={card} back={sheet.back} bleedSettings={settings} sheet /></div>)}
           {settings.cut && sheet.slots.flatMap(({ x, y }) => cutSegments(x, y)).map(([x1, y1, x2, y2], i) => <i key={i} className="cut" style={{
             left: `${x1 / paperW * 100}%`, top: `${y1 / paperH * 100}%`,
             width: x1 === x2 ? '1px' : `${(x2 - x1) / paperW * 100}%`, height: y1 === y2 ? '1px' : `${(y2 - y1) / paperH * 100}%`

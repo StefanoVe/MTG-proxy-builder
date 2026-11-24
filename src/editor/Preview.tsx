@@ -1,17 +1,18 @@
 import { errorMessage, LocalizedError } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
 import { cardZones } from './card-zones.js';
-import { cardArtZone } from '../shared/model.js';
+import { cardArtZone, sideOrientation } from '../shared/model.js';
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 import type { Card, Rect, Zones } from '../shared/model.js';
 import { compose } from './compose.js';
-import { drawCardImage, imageGeometry } from './card-images.js';
+import { drawCardImage, imageGeometry, sheetImage } from './card-images.js';
 import type { PrintSettings } from '../shared/model.js';
 
-export function Preview({ card, back = false, showThirds = false, onCrop, zone, guide, onZone, hideWarning, bleedSettings }: {
+export function Preview({ card, back = false, showThirds = false, onCrop, zone, guide, onZone, hideWarning, bleedSettings, sheet = false }: {
   card: Card;
   bleedSettings?: PrintSettings;
+  sheet?: boolean;
   back?: boolean;
   showThirds?: boolean;
   onCrop?: (crop: Card['crop']) => void;
@@ -33,7 +34,7 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
     void compose(offscreen, card, back).then(({ warning }) => {
       const canvas = ref.current;
       if (!active || !canvas) return;
-      if (bleedSettings) drawCardImage(canvas, offscreen, imageGeometry(300, bleedSettings.bleed ?? 'none', bleedSettings.customMm ?? 3), bleedSettings.fill ?? 'mirror', bleedSettings.color ?? '#000000');
+      if (bleedSettings) drawCardImage(canvas, sheet ? sheetImage(offscreen) : offscreen, imageGeometry(300, bleedSettings.bleed ?? 'none', bleedSettings.customMm ?? 3), bleedSettings.fill ?? 'mirror', bleedSettings.color ?? '#000000');
       else { canvas.width = offscreen.width; canvas.height = offscreen.height; canvas.getContext('2d')!.drawImage(offscreen, 0, 0); }
       setWarning(!hideWarning && warning ? new LocalizedError(warning) : undefined);
     }).catch((error: Error) => {
@@ -43,7 +44,7 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
       setWarning(error);
     });
     return () => { active = false; };
-  }, [card, back, hideWarning, bleedSettings]);
+  }, [card, back, hideWarning, bleedSettings, sheet]);
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas || !onCrop || rect || !canDrag) return;
@@ -76,7 +77,7 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
     }
   }
   return <div className="preview-wrap">
-    <div className={`card-preview ${canDrag ? 'is-draggable' : ''}`} onPointerDown={start} onPointerMove={move}
+    <div className={`card-preview ${canDrag ? 'is-draggable' : ''}`} style={!sheet && sideOrientation(card, back) === 'landscape' ? { aspectRatio: '88 / 63' } : undefined} onPointerDown={start} onPointerMove={move}
       onLostPointerCapture={() => { drag.current = null; }}>
       <canvas ref={ref} role="img" aria-label={back ? t('cardBack') : t('cardPreview', { name: card.fields.name })} />
       {showThirds && <div className="thirds-grid" aria-hidden="true">

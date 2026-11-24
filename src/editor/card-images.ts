@@ -17,7 +17,27 @@ export function imageGeometry(dpi: number, bleed: Bleed, customMm: number) {
 
 type Geometry = ReturnType<typeof imageGeometry>;
 
+export function orientedGeometry(geometry: Geometry, landscape: boolean): Geometry {
+  if (!landscape) return geometry;
+  return { ...geometry, width: geometry.height, height: geometry.width,
+    totalWidth: geometry.totalHeight, totalHeight: geometry.totalWidth };
+}
+
+/** Rotate a readable landscape face back into the portrait slot used by duplex sheets. */
+export function sheetImage(source: HTMLCanvasElement): HTMLCanvasElement {
+  if (source.width <= source.height) return source;
+  const canvas = document.createElement('canvas');
+  canvas.width = source.height;
+  canvas.height = source.width;
+  const context = canvas.getContext('2d')!;
+  context.translate(0, canvas.height);
+  context.rotate(-Math.PI / 2);
+  context.drawImage(source, 0, 0);
+  return canvas;
+}
+
 export function drawCardImage(canvas: HTMLCanvasElement, source: HTMLCanvasElement, geometry: Geometry, fill: BleedFill, color: string) {
+  geometry = orientedGeometry(geometry, source.width > source.height);
   const { width, height, margin, totalWidth, totalHeight } = geometry;
   canvas.width = totalWidth;
   canvas.height = totalHeight;

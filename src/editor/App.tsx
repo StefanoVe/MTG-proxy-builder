@@ -4,7 +4,7 @@ import { useI18n } from './i18n.js';
 import { projectCards, projectFrame, templateAppearance, withProjectFrame } from '../shared/templates.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { assetURL, blankCard, cardSide, createCard, createProject, defaultCrop, defaultZones, isCardModified, sideState } from '../shared/model.js';
+import { assetURL, blankCard, cardSide, createCard, createProject, defaultCrop, defaultZones, isCardModified, rebaseBackSide, sideOrientation, sideState } from '../shared/model.js';
 import type { Card, DeckEntry, FrameSet, Printing, Project, Rect, Template, TemplateAppearance, Zones } from '../shared/model.js';
 import { matchesCardSearch, parseDeckRows } from '../shared/deck.js';
 import { loadDeckCards } from '../shared/deck-import.js';
@@ -26,6 +26,14 @@ const usesArt = (card: Card) => card.source.editable && card.frame.kind !== 'pri
 const imageKey = (projectId: string, card: Card) => `${projectId}/${card.id}/${card.source.printingId}/${usesArt(card) ? 'art' : 'scan'}`;
 const needsImages = (card: Card) => !!card.source.printingId && (usesArt(card)
   ? !(card.art || card.source.images.art) : !card.source.images.front);
+function editableSource(source: Card['source']): Card['source'] {
+  if (source.editable) return source;
+  const sections = ['split', 'aftermath', 'adventure'].includes(source.layout) ? source.details?.faces : undefined;
+  const rules = !source.rules && sections?.length ? sections.map(face => [
+    [face.name, face.mana].filter(Boolean).join(' · '), face.type, face.rules
+  ].filter(Boolean).join('\n')).join('\n\n') : source.rules;
+  return { ...source, editable: true, rules };
+}
 
 function Dialog({ title, children, close, busy, wide, back }: {
   title: string; children: ReactNode; close: () => void; busy: boolean; wide?: boolean; back?: () => void;
@@ -99,8 +107,12 @@ export function App() {
   const card = project?.cards.find(item => item.id === active) ?? project?.cards[0];
   const sharedFrame = project ? projectFrame(project) : undefined;
   const renderedCard = useMemo(() => card && project ? withProjectFrame(card, project) : undefined, [card, project]);
-  const selectedCard = card ? cardSide(card, back) : undefined;
-  const selectedRendered = renderedCard ? cardSide(renderedCard, back) : undefined;
+  const forEditing = (item: Card) => {
+    const side = cardSide(item, back);
+    return side.source.editable ? side : { ...side, source: editableSource(side.source) };
+  };
+  const selectedCard = card ? forEditing(card) : undefined;
+  const selectedRendered = renderedCard ? forEditing(renderedCard) : undefined;
   const needsDownload = (item: Card) => !!project && needsImages(item) && !attemptedImages.current.has(imageKey(project.id, item));
   const nextImageCard = renderedCard && needsDownload(renderedCard) ? renderedCard
     : project && sharedFrame ? projectCards(project).find(needsDownload) : undefined;
@@ -201,7 +213,11 @@ export function App() {
   }
 
   function updateSide(id: string, patch: Partial<Card>, group = false) {
-    if (!back) return update(id, patch, group);
+    if (!back) {
+      commit(value => ({ ...value, cards: value.cards.map(item => item.id === id
+        ? { ...item, ...patch, source: patch.source ?? editableSource(item.source) } : item) }), group);
+      return;
+    }
     commit(value => ({ ...value, cards: value.cards.map(item => item.id === id
       ? { ...item, backSide: sideState({ ...cardSide(item, true), ...patch }) } : item) }), group);
   }
@@ -318,7 +334,7 @@ export function App() {
       const art = frameOnly
         ? keepArt ? card.art ?? (changed ? card.source.images.art : undefined) : undefined
         : card.art;
-      update(card.id, { source, fields, frame, art, crop: art ? card.crop : defaultCrop, backSide: changed ? undefined : card.backSide });
+      update(card.id, { source, fields, frame, art, crop: art ? card.crop : defaultCrop, backSide: rebaseBackSide(card, source) });
       setZone(undefined);
       setBack(false);
       setPanel(undefined);
@@ -555,17 +571,18 @@ export function App() {
           {!visibleCards.length && <p className="deck-list-empty" role="status">{t('noAddedCardsFound')}</p>}
         </>}
       </aside>
-      <main className="stage" onDragOver={event => { if (card?.source.editable && event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDraggingImage(true); } }} onDragLeave={event => {
+      <main className="stage" onDragOver={event => { if (selectedCard?.source.editable && event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDraggingImage(true); } }} onDragLeave={event => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingImage(false);
       }} onDrop={event => {
         event.preventDefault();
         setDraggingImage(false);
         const file = event.dataTransfer.files[0];
-        if (!card?.source.editable || !file) return;
+        if (!card || !selectedCard?.source.editable || !file) return;
         void action(async () => {
           if (file.size > 32 * 1024 * 1024) throw new LocalizedError('imageSize');
           const asset = await window.proxy.dropped(new Uint8Array(await file.arrayBuffer()), file.name, false);
-          updateSide(card.id, { art: asset.id, crop: defaultCrop });
+          updateSide(card.id, { art: asset.id, crop: defaultCrop,
+            ...(selectedCard && selectedCard.frame.kind === 'printing' && sideOrientation(card, back) === 'landscape' ? { frame: { kind: 'template', template: 'full-art' } } : {}) });
           if (renderedCard?.frame.kind === 'printing') setZone(undefined);
         });
       }}>
@@ -595,8 +612,9 @@ export function App() {
               </div>}
             </div>}
           </div>
-          {card.source.editable && <button className={`image-dropzone${draggingImage ? ' dragging' : ''}`} disabled={busy} onClick={() => void selectAssets(false).then(image => {
-            if (image) updateSide(card.id, { art: image.id, crop: defaultCrop });
+          {selectedCard?.source.editable && <button className={`image-dropzone${draggingImage ? ' dragging' : ''}`} disabled={busy} onClick={() => void selectAssets(false).then(image => {
+            if (image) updateSide(card.id, { art: image.id, crop: defaultCrop,
+              ...(selectedCard && selectedCard.frame.kind === 'printing' && sideOrientation(card, back) === 'landscape' ? { frame: { kind: 'template', template: 'full-art' } } : {}) });
           })}>{t('dropImage')}</button>}
           <div className="stage-meta">
             <span>63 × 88 mm</span>
@@ -612,7 +630,7 @@ export function App() {
           {catalogSearch}
         </div>}
       </main>
-      {card && selectedCard && selectedRendered ? <Inspector key={`${card.id}/${back}`} card={selectedCard} renderedCard={selectedRendered} sharedFrame={!!sharedFrame} presets={project.presets} frameSets={project.frameSets ?? []}
+      {card && selectedCard && selectedRendered ? <Inspector key={`${card.id}/${back}`} card={selectedCard} renderedCard={selectedRendered} sharedFrame={!!sharedFrame && !back && card.source.editable} presets={project.presets} frameSets={project.frameSets ?? []}
         systemFonts={systemFonts}
         resetCard={() => {
           if (back) update(card.id, { backSide: undefined });

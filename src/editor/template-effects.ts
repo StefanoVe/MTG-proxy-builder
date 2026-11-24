@@ -3,8 +3,8 @@ import type { Rect, Template, TemplateAppearance } from '../shared/model.js';
 
 const { width, height } = pixels;
 
-export function templateBox(zone: Rect): Rect {
-  return { x: zone.x * width / 100, y: zone.y * height / 100, w: zone.w * width / 100, h: zone.h * height / 100 };
+export function templateBox(zone: Rect, w = width, h = height): Rect {
+  return { x: zone.x * w / 100, y: zone.y * h / 100, w: zone.w * w / 100, h: zone.h * h / 100 };
 }
 
 const regions = {
@@ -24,6 +24,7 @@ export function templateEffectLimits(template: Template, effect: Effect) {
 
 function wash(ctx: CanvasRenderingContext2D, template: Template, appearance: TemplateAppearance,
   effect: Effect, color: string, strength: number, blurStep?: number) {
+  const { width, height } = ctx.canvas ?? pixels;
   if (!strength) return false;
   const { panel, radius } = regions[effect];
   const { edge, max, defaultHeight } = templateEffectLimits(template, effect);
@@ -53,7 +54,7 @@ function wash(ctx: CanvasRenderingContext2D, template: Template, appearance: Tem
     ctx.fillStyle = gradient;
     ctx.fillRect(0, y * height / 100, width, extent * height / 100);
   } else {
-    const rect = templateBox({ ...panel, y, h: extent });
+    const rect = templateBox({ ...panel, y, h: extent }, width, height);
     ctx.beginPath();
     ctx.roundRect(rect.x, rect.y, rect.w, rect.h, radius);
     ctx.fillStyle = tinted(1);
@@ -64,6 +65,7 @@ function wash(ctx: CanvasRenderingContext2D, template: Template, appearance: Tem
 
 export function blurTemplateArt(ctx: CanvasRenderingContext2D, template: Template, appearance: TemplateAppearance) {
   if (!appearance.titleBlur && !appearance.rulesBlur) return;
+  const { width, height } = ctx.canvas ?? pixels;
   const buffer = document.createElement('canvas');
   buffer.width = width;
   buffer.height = height;
@@ -109,7 +111,7 @@ export function drawTemplateDividers(ctx: CanvasRenderingContext2D, appearance: 
   const alignment = appearance.dividerAlign ?? 'center';
   for (const [zone, enabled] of [['title', appearance.titleDivider], ['rules', appearance.divider]] as const) {
     if (!enabled) continue;
-    const rect = templateBox(appearance.zones[zone]);
+    const rect = templateBox(appearance.zones[zone], ctx.canvas.width, ctx.canvas.height);
     const length = rect.w * (appearance.dividerLength ?? 100) / 100;
     const x = rect.x + (rect.w - length) * (alignment === 'left' ? 0 : alignment === 'right' ? 1 : .5);
     const y = zone === 'title' ? rect.y + rect.h + (appearance.dividerPadding ?? 6)

@@ -154,10 +154,17 @@ export async function getCard(id: string, includeImages = true, locale: Locale =
   const editable = true;
   const physicalFaces = !!backImages;
   const sections = !physicalFaces && card.card_faces?.length ? card.card_faces : undefined;
+  const sectionText = sections?.map(face => [
+    [face.printed_name ?? face.name, face.mana_cost].filter(Boolean).join(' · '),
+    face.printed_type_line ?? face.type_line,
+    face.printed_text ?? face.oracle_text
+  ].filter(Boolean).join('\n')).join('\n\n');
   const result: CardData = {
     printingId: card.id, oracleId: card.oracle_id ?? card.id, name: card.name,
     set: card.set, setName: card.set_name, number: card.collector_number, layout: card.layout,
     editable, colors: card.colors, images: {},
+    orientation: ['battle', 'split', 'aftermath', 'planar', 'scheme'].includes(card.layout) || /\bBattle\b/i.test(firstFace?.type_line ?? card.type_line ?? '') ? 'landscape' : 'portrait',
+    backOrientation: physicalFaces && /\bBattle\b/i.test(backFace?.type_line ?? '') ? 'landscape' : 'portrait',
     faceNames: card.card_faces?.map(face => face.printed_name ?? face.name) ?? [],
     details: {
       printedName: physicalFaces ? firstFace?.printed_name ?? firstFace?.name : card.printed_name, rarity: card.rarity ?? '', lang: card.lang,
@@ -170,7 +177,7 @@ export async function getCard(id: string, includeImages = true, locale: Locale =
       })) ?? []
     },
     mana: card.mana_cost ?? firstFace?.mana_cost ?? '', type: (physicalFaces ? firstFace?.printed_type_line ?? firstFace?.type_line : card.printed_type_line ?? card.type_line) ?? '',
-    rules: (physicalFaces ? firstFace?.printed_text ?? firstFace?.oracle_text : card.printed_text ?? card.oracle_text ?? sections?.map(face => `${face.printed_name ?? face.name}\n${face.printed_text ?? face.oracle_text ?? ''}`).join('\n\n')) ?? '', artist: card.artist ?? firstFace?.artist ?? '',
+    rules: (physicalFaces ? firstFace?.printed_text ?? firstFace?.oracle_text : sectionText ?? card.printed_text ?? card.oracle_text) ?? '', artist: card.artist ?? firstFace?.artist ?? '',
     power: card.power ?? firstFace?.power ?? '', toughness: card.toughness ?? firstFace?.toughness ?? '', loyalty: card.loyalty ?? firstFace?.loyalty ?? '', defense: card.defense ?? firstFace?.defense ?? ''
   };
   if (!includeImages) return result;

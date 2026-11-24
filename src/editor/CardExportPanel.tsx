@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Card, Project } from '../shared/model.js';
 import { projectCards } from '../shared/templates.js';
 import { cardArchiveLimit } from '../shared/print.js';
-import { drawCardImage, imageFaces, imageGeometry } from './card-images.js';
+import { drawCardImage, imageFaces, imageGeometry, orientedGeometry } from './card-images.js';
+import { sideOrientation } from '../shared/model.js';
 import type { Bleed, BleedFill, ImageFormat } from './card-images.js';
 import { compose } from './compose.js';
 
@@ -16,6 +17,7 @@ function CardThumbnail({ card, back, geometry, fill, color, guides }: {
   const { t, locale } = useI18n();
   const ref = useRef<HTMLCanvasElement>(null);
   const [source, setSource] = useState<HTMLCanvasElement>();
+  const faceGeometry = orientedGeometry(geometry, sideOrientation(card, back) === 'landscape');
   const [warning, setWarning] = useState<Error>();
   useEffect(() => {
     const canvas = ref.current!;
@@ -33,8 +35,8 @@ function CardThumbnail({ card, back, geometry, fill, color, guides }: {
       void compose(composed, card, back).then(({ warning }) => {
         if (!visible || !canvas.isConnected) return;
         const thumbnail = document.createElement('canvas');
-        thumbnail.width = 252;
-        thumbnail.height = 352;
+        thumbnail.width = composed.width > composed.height ? 352 : 252;
+        thumbnail.height = composed.width > composed.height ? 252 : 352;
         const context = thumbnail.getContext('2d')!;
         context.imageSmoothingQuality = 'high';
         context.drawImage(composed, 0, 0, thumbnail.width, thumbnail.height);
@@ -56,10 +58,10 @@ function CardThumbnail({ card, back, geometry, fill, color, guides }: {
 
   const side = back ? t('back') : t('front');
   return <figure className="card-export-item">
-    <div className="card-export-image" style={{ aspectRatio: `${geometry.totalWidth} / ${geometry.totalHeight}` }}>
+    <div className="card-export-image" style={{ aspectRatio: `${faceGeometry.totalWidth} / ${faceGeometry.totalHeight}` }}>
       <canvas ref={ref} width={1} height={1} role="img" aria-label={`${card.fields.name} · ${side}`} />
       {guides && geometry.margin > 0 && <span className="trim-guide" style={{
-        inset: `${100 * geometry.margin / geometry.totalHeight}% ${100 * geometry.margin / geometry.totalWidth}%`
+        inset: `${100 * faceGeometry.margin / faceGeometry.totalHeight}% ${100 * faceGeometry.margin / faceGeometry.totalWidth}%`
       }} aria-hidden="true" />}
     </div>
     <figcaption><strong>{card.fields.name}</strong><small>{side}{card.count > 1 && ` · ×${card.count}`}</small></figcaption>

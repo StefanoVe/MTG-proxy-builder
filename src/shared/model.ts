@@ -24,6 +24,7 @@ const faceDetails = z.object({
 export const cardDataSchema = z.object({
   printingId: z.string(), oracleId: z.string(), name: text, set: text, setName: text, number: text,
   layout: text, editable: z.boolean(), colors: z.array(z.enum(['W', 'U', 'B', 'R', 'G'])).max(5),
+  orientation: z.enum(['portrait', 'landscape']).optional(), backOrientation: z.enum(['portrait', 'landscape']).optional(),
   mana: text, type: text, rules: z.string().max(12000), artist: text,
   power: text, toughness: text, loyalty: text, defense: text,
   images: printingImages, faceNames: z.array(text).max(10),
@@ -190,15 +191,39 @@ export function cardSide(card: Card, back: boolean): Card {
   const source = { ...card.source, name: face?.name ?? card.source.faceNames[1] ?? card.source.name,
     ...(face ? { mana: face.mana, type: face.type, rules: face.rules, artist: face.artist, power: face.power,
       toughness: face.toughness, loyalty: face.loyalty, defense: face.defense } : {}),
-    editable: true, images: { front: card.source.images.back, art: card.source.images.backArt },
+    editable: true, orientation: card.source.backOrientation ?? (/\b(battle|battaglia)\b/i.test(face?.type ?? '') ? 'landscape' as const : 'portrait' as const),
+    backOrientation: undefined, images: { front: card.source.images.back, art: card.source.images.backArt },
     details: card.source.details ? { ...card.source.details, printedName: face?.name, faces: [] } : undefined };
   const initial = createCard(source, card.count);
   return { ...card, ...initial, ...card.backSide, id: card.id, source, backSide: undefined };
 }
 
+/** Orientation describes the readable face, independently of the physical sheet slot. */
+export function sideOrientation(card: Card, back = false): 'portrait' | 'landscape' {
+  const recorded = back ? card.source.backOrientation : card.source.orientation;
+  if (recorded) return recorded;
+  const type = back ? card.source.details?.faces[1]?.type : card.source.details?.faces[0]?.type ?? card.source.type;
+  if (/\b(battle|battaglia)\b/i.test(type ?? '')) return 'landscape';
+  if (!back && ['battle', 'split', 'aftermath', 'planar', 'scheme'].includes(card.source.layout)) return 'landscape';
+  return 'portrait';
+}
+
 export function sideState(card: Card): NonNullable<Card['backSide']> {
   const { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides } = card;
   return { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides };
+}
+
+export function rebaseBackSide(card: Card, source: CardData): Card['backSide'] {
+  if (!card.backSide || !source.images.back) return card.backSide;
+  const oldDefault = cardSide({ ...card, backSide: undefined }, true);
+  const newDefault = cardSide({ ...card, source, backSide: undefined }, true);
+  const fields = { ...card.backSide.fields };
+  for (const key of Object.keys(fields) as Array<keyof Card['fields']>) {
+    if (fields[key] === oldDefault.fields[key]) fields[key] = newDefault.fields[key];
+  }
+  const frame = card.backSide.frame.kind === 'printing' && card.source.printingId !== source.printingId
+    ? { kind: 'printing' as const } : card.backSide.frame;
+  return { ...card.backSide, fields, frame };
 }
 
 export function isCardModified(card: Card): boolean {

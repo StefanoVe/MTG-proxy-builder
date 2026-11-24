@@ -6,7 +6,7 @@ import type { PrintSettings } from '../shared/model.js';
 import { bleedMm, cardHeight, cardWidth, cutSegments, mmToPt, papers } from '../shared/print.js';
 import type { Sheet, Slot } from '../shared/print.js';
 import { compose } from './compose.js';
-import { drawCardImage, imageGeometry } from './card-images.js';
+import { drawCardImage, imageGeometry, sheetImage } from './card-images.js';
 
 export async function createPdf(sheets: Sheet[], settings: PrintSettings, name: string, progress: (page: number) => void, locale: Locale = 'it') {
   const doc = await PDFDocument.create();
@@ -22,7 +22,7 @@ export async function createPdf(sheets: Sheet[], settings: PrintSettings, name: 
     const { warning } = await compose(canvas, card, back);
     if (warning) throw new Error(`${card.fields.name} · ${translate(locale, warning)}`);
     const output = document.createElement('canvas');
-    drawCardImage(output, canvas, imageGeometry(300, settings.bleed ?? 'none', settings.customMm ?? 3), settings.fill ?? 'mirror', settings.color ?? '#000000');
+    drawCardImage(output, sheetImage(canvas), imageGeometry(300, settings.bleed ?? 'none', settings.customMm ?? 3), settings.fill ?? 'mirror', settings.color ?? '#000000');
     const jpg = output.toDataURL('image/jpeg', 0.94);
     const image = await doc.embedJpg(jpg);
     rendered.set(key, image);

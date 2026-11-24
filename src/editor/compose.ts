@@ -4,12 +4,12 @@ import { cardZones } from './card-zones.js';
 import { blendColorFrames } from './color-frames.js';
 import { colorFrameLayers } from '../shared/frame-colors.js';
 import { templateAppearance } from '../shared/templates.js';
-import { blurTemplateArt, drawTemplateDividers, shadeTemplate, templateBox as box } from './template-effects.js';
+import { blurTemplateArt, drawTemplateDividers, shadeTemplate, templateBox } from './template-effects.js';
 import { drawDecorations, loadMotif } from './template-decorations.js';
 import { manaTokens, ruleWords } from '../shared/mana.js';
 import type { RuleRun } from '../shared/mana.js';
 import { drawSymbol, manaIcons } from './mana-icons.js';
-import { assetURL, cardSide, defaultZones } from '../shared/model.js';
+import { assetURL, cardSide, defaultZones, sideOrientation } from '../shared/model.js';
 import type { Card, Rect, Tone } from '../shared/model.js';
 import { findArtWindow, findTransparentArtWindow } from '../shared/art-window.js';
 import { pixels } from '../shared/print.js';
@@ -191,7 +191,8 @@ function drawRules(ctx: CanvasRenderingContext2D, text: string, r: Rect, ink: st
 }
 
 function framedPrinting(ctx: CanvasRenderingContext2D, scan: HTMLImageElement, art: HTMLImageElement, rect: Rect, crop: Card['crop']) {
-  const hole = box(rect);
+  const { width, height } = ctx.canvas;
+  const hole = templateBox(rect, width, height);
   drawRect(ctx, hole, '#1a1d1d', 0);
   artwork(ctx, art, hole, crop);
   ctx.save();
@@ -205,6 +206,10 @@ function framedPrinting(ctx: CanvasRenderingContext2D, scan: HTMLImageElement, a
 
 export async function compose(canvas: HTMLCanvasElement, card: Card, back = false): Promise<{ warning?: MessageKey }> {
   if (back) return compose(canvas, cardSide(card, true));
+  const landscape = sideOrientation(card) === 'landscape';
+  const width = landscape ? pixels.height : pixels.width;
+  const height = landscape ? pixels.width : pixels.height;
+  const box = (zone: Rect) => templateBox(zone, width, height);
   const artId = card.art ?? card.source.images.art;
   const template = card.frame.kind === 'template' ? card.frame.template : undefined;
   const hidden = new Set(card.hiddenZones ?? []);
@@ -242,15 +247,14 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   ctx.fillStyle = '#1a1d1d';
   ctx.fillRect(0, 0, width, height);
   if (printed) {
-    // The sheet uses portrait slots. Rotate landscape scans into the slot rather
-    // than stretching them; the same raster is used for PDF and image export.
-    if (printed.naturalWidth > printed.naturalHeight && !replacement) {
+    const scanLandscape = printed.naturalWidth > printed.naturalHeight;
+    if (scanLandscape !== landscape) {
       ctx.save();
-      ctx.translate(0, height);
-      ctx.rotate(-Math.PI / 2);
+      if (landscape) { ctx.translate(width, 0); ctx.rotate(Math.PI / 2); }
+      else { ctx.translate(0, height); ctx.rotate(-Math.PI / 2); }
       ctx.drawImage(printed, 0, 0, height, width);
       ctx.restore();
-      return {};
+      return replacement ? { warning: 'adjustArtOrFrame' } : {};
     }
     if (replacement && art) {
       const rect = (card.frame.kind === 'printing' ? card.frame.artZone : undefined) ?? await detectedArtZone(card);
@@ -276,16 +280,20 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
     (card.fields.power || card.fields.toughness ? `${card.fields.power}/${card.fields.toughness}` : '');
 
   if (!overlay && !template) {
-    drawRect(ctx, { x: 23, y: 24, w: width - 46, h: height - 48 }, ink, classic ? 3 : 21, '#0e0f10');
+    ctx.save();
+    ctx.scale(width / pixels.width, height / pixels.height);
+    const baseWidth = pixels.width, baseHeight = pixels.height;
+    drawRect(ctx, { x: 23, y: 24, w: baseWidth - 46, h: baseHeight - 48 }, ink, classic ? 3 : 21, '#0e0f10');
     if (classic) {
       ctx.strokeStyle = '#cfbc87';
       ctx.lineWidth = 3;
-      ctx.strokeRect(31, 33, width - 62, height - 66);
+      ctx.strokeRect(31, 33, baseWidth - 62, baseHeight - 66);
     }
-    if (!hidden.has('title')) drawRect(ctx, { x: 37, y: 42, w: width - 74, h: 69 }, paper, classic ? 1 : 12, '#302b25');
-    if (!hidden.has('type')) drawRect(ctx, { x: 37, y: 623, w: width - 74, h: 64 }, paper, classic ? 1 : 10, '#302b25');
-    if (!hidden.has('rules')) drawRect(ctx, { x: 37, y: 693, w: width - 74, h: 254 }, paper, classic ? 1 : 12, '#302b25');
-    if (stats && !hidden.has('stats')) drawRect(ctx, box(zones.stats), paper, classic ? 1 : 12, '#302b25');
+    if (!hidden.has('title')) drawRect(ctx, { x: 37, y: 42, w: baseWidth - 74, h: 69 }, paper, classic ? 1 : 12, '#302b25');
+    if (!hidden.has('type')) drawRect(ctx, { x: 37, y: 623, w: baseWidth - 74, h: 64 }, paper, classic ? 1 : 10, '#302b25');
+    if (!hidden.has('rules')) drawRect(ctx, { x: 37, y: 693, w: baseWidth - 74, h: 254 }, paper, classic ? 1 : 12, '#302b25');
+    if (stats && !hidden.has('stats')) drawRect(ctx, templateBox(zones.stats), paper, classic ? 1 : 12, '#302b25');
+    ctx.restore();
   }
   if (!hidden.has('art')) {
     drawRect(ctx, illustration, '#343b3d', 0);
@@ -313,7 +321,7 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   if (template) {
     fitLine(ctx, card.fields.artist, { x: width * 0.06, y: height * 0.965, w: width * 0.88, h: 23 }, 19, font, textColor);
   } else if (!overlay) {
-    fitLine(ctx, card.fields.artist, { x: 49, y: 960, w: width - 90, h: 26 }, 21, font, textColor);
+    fitLine(ctx, card.fields.artist, { x: width * .066, y: height * .924, w: width * .88, h: height * .025 }, 21, font, textColor);
   } else {
     fitLine(ctx, card.fields.artist, { x: 26, y: height - 33, w: width - 52, h: 29 }, 20, font, textColor);
   }

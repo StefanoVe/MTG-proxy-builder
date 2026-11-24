@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { blankCard, cardSide, createCard, createProject, defaultZones, isCardModified, projectSchema, sideState } from '../src/shared/model.ts';
+import { blankCard, cardSide, createCard, createProject, defaultZones, isCardModified, projectSchema, rebaseBackSide, sideOrientation, sideState } from '../src/shared/model.ts';
 import type { Asset, Card, FrameSet } from '../src/shared/model.ts';
 import { colorFrameLayers, colorsForFrame } from '../src/shared/frame-colors.ts';
 import { matchBatch, matchesCardSearch, parseDeck } from '../src/shared/deck.ts';
@@ -47,6 +47,25 @@ test('each physical side retains independent edits through project serialization
   const restored = projectSchema.parse(JSON.parse(JSON.stringify({ ...createProject(), cards: [edited] })));
   assert.equal(cardSide(restored.cards[0], true).fields.rules, 'changed');
   assert.equal(printSheets(restored.cards, options)[1].slots.length, 2);
+  const updatedSource = { ...source, printingId: 'new-printing', details: { ...source.details, faces: [source.details.faces[0],
+    { ...source.details.faces[1], name: 'New back', type: 'Land', rules: 'new rules' }] } };
+  const rebased = rebaseBackSide(edited, updatedSource)!;
+  assert.equal(rebased.fields.name, 'New back');
+  assert.equal(rebased.fields.type, 'Land');
+  assert.equal(rebased.fields.rules, 'changed');
+  assert.equal(rebased.frame.kind, 'template');
+  assert.deepEqual(rebaseBackSide(edited, { ...updatedSource, images: { front: image } }), edited.backSide);
+});
+
+test('orientation is determined independently for physical sides and split cards', () => {
+  const face = { name: '', mana: '', type: '', rules: '', flavor: '', artist: '', power: '', toughness: '', loyalty: '', defense: '' };
+  const battle = createCard({ ...blankCard, layout: 'battle', type: 'Battle — Siege', images: { front: image, back: image },
+    details: { rarity: '', lang: 'en', flavor: '', faces: [{ ...face, type: 'Battle — Siege' }, { ...face, type: 'Creature' }] } });
+  assert.equal(sideOrientation(battle), 'landscape');
+  assert.equal(sideOrientation(battle, true), 'portrait');
+  assert.equal(sideOrientation(cardSide(battle, true)), 'portrait');
+  assert.equal(sideOrientation(createCard({ ...blankCard, layout: 'split' })), 'landscape');
+  assert.equal(sideOrientation(card('Normal')), 'portrait');
 });
 
 test('decklist import preserves order, quantities, set and collector number and reports invalid quantities', () => {

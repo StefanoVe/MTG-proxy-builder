@@ -76,7 +76,7 @@ export function drawDecorations(ctx: CanvasRenderingContext2D, layers: { decorat
   ctx.save();
   for (const { decoration, image } of layers) {
     if (!decoration.opacity) continue;
-    const { x, y, w, h } = templateBox(decoration.rect);
+    const { x, y, w, h } = templateBox(decoration.rect, ctx.canvas.width, ctx.canvas.height);
     const scale = Math.min(w / image.width, h / image.height);
     const targetW = decoration.fit === 'stretch' ? w : image.width * scale;
     const targetH = decoration.fit === 'stretch' ? h : image.height * scale;
