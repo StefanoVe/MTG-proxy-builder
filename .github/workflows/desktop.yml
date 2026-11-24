@@ -1,0 +1,91 @@
+name: Desktop builds and releases
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: --mac --arm64
+            executable: release/mac-arm64/MTG Proxy Builder.app/Contents/MacOS/MTG Proxy Builder
+            artifact: macos-arm64
+            files: release/*.dmg
+          - runner: macos-15-intel
+            target: --mac --x64
+            executable: release/mac/MTG Proxy Builder.app/Contents/MacOS/MTG Proxy Builder
+            artifact: macos-x64
+            files: release/*.dmg
+          - runner: windows-2025
+            target: --win --x64
+            executable: release/win-unpacked/MTG Proxy Builder.exe
+            artifact: windows-x64
+            files: release/*.exe
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npx --no-install electron-builder ${{ matrix.target }} --publish never
+      - run: npm run test:desktop
+        env:
+          MTG_SMOKE_EXECUTABLE: ${{ matrix.executable }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: desktop
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+      - name: Publish the three installers
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          tag="v${version}-build.${GITHUB_RUN_NUMBER}"
+          installers=(
+            "installers/macos-arm64/MTG Proxy Builder-${version}-arm64.dmg"
+            "installers/macos-x64/MTG Proxy Builder-${version}-x64.dmg"
+            "installers/windows-x64/MTG Proxy Builder-${version}-x64.exe"
+          )
+          for installer in "${installers[@]}"; do
+            test -s "$installer"
+          done
+
+          git push origin "${GITHUB_SHA}:refs/tags/${tag}"
+          if draft="$(gh release view "$tag" --json isDraft --jq .isDraft)"; then
+            if [[ "$draft" == "true" ]]; then
+              gh release upload "$tag" "${installers[@]}" --clobber
+              gh release edit "$tag" --draft=false
+            fi
+          else
+            gh release create "$tag" "${installers[@]}" --verify-tag --generate-notes \
+              --title "MTG Proxy Builder ${version} · build ${GITHUB_RUN_NUMBER}"
+          fi

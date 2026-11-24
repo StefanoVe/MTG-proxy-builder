@@ -1,0 +1,167 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Card, Project } from '../shared/model.js';
+import { withProjectTemplate } from '../shared/templates.js';
+import { cardArchiveLimit } from '../shared/print.js';
+import { drawCardImage, imageFaces, imageGeometry } from './card-images.js';
+import type { Bleed, BleedFill, ImageFormat } from './card-images.js';
+import { compose } from './compose.js';
+
+type Geometry = ReturnType<typeof imageGeometry>;
+
+function CardThumbnail({ card, back, geometry, fill, color, guides }: {
+  card: Card; back: boolean; geometry: Geometry; fill: BleedFill; color: string; guides: boolean;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const [source, setSource] = useState<HTMLCanvasElement>();
+  const [warning, setWarning] = useState('');
+  useEffect(() => {
+    const canvas = ref.current!;
+    let visible = false;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting === visible) return;
+      visible = entry.isIntersecting;
+      if (!visible) {
+        canvas.width = 1;
+        canvas.height = 1;
+        setSource(undefined);
+        return;
+      }
+      const composed = document.createElement('canvas');
+      void compose(composed, card, back).then(({ warning }) => {
+        if (!visible || !canvas.isConnected) return;
+        const thumbnail = document.createElement('canvas');
+        thumbnail.width = 252;
+        thumbnail.height = 352;
+        const context = thumbnail.getContext('2d')!;
+        context.imageSmoothingQuality = 'high';
+        context.drawImage(composed, 0, 0, thumbnail.width, thumbnail.height);
+        setSource(thumbnail);
+        setWarning(warning ?? '');
+      }).catch((cause: unknown) => {
+        if (visible && canvas.isConnected) setWarning(cause instanceof Error ? cause.message : String(cause));
+      });
+    }, { rootMargin: '140px' });
+    observer.observe(canvas);
+    return () => {
+      visible = false;
+      observer.disconnect();
+    };
+  }, [card, back]);
+  useEffect(() => {
+    if (source && ref.current) drawCardImage(ref.current, source, geometry, fill, color);
+  }, [source, geometry, fill, color]);
+
+  const side = back ? 'Retro' : 'Fronte';
+  return <figure className="card-export-item">
+    <div className="card-export-image" style={{ aspectRatio: `${geometry.totalWidth} / ${geometry.totalHeight}` }}>
+      <canvas ref={ref} width={1} height={1} role="img" aria-label={`${card.fields.name} · ${side}`} />
+      {guides && geometry.margin > 0 && <span className="trim-guide" style={{
+        inset: `${100 * geometry.margin / geometry.totalHeight}% ${100 * geometry.margin / geometry.totalWidth}%`
+      }} aria-hidden="true" />}
+    </div>
+    <figcaption><strong>{card.fields.name}</strong><small>{side}{card.count > 1 && ` · ×${card.count}`}</small></figcaption>
+    {warning && <small className="error" role="status">{warning}</small>}
+  </figure>;
+}
+
+export function CardExportPanel({ project, onBusy, onExport }: {
+  project: Project; onBusy: (busy: boolean) => void; onExport: () => void;
+}) {
+  const [bleed, setBleed] = useState<Bleed>('none');
+  const [customMm, setCustomMm] = useState('3');
+  const [fill, setFill] = useState<BleedFill>('mirror');
+  const [color, setColor] = useState('#000000');
+  const [dpi, setDpi] = useState(300);
+  const [format, setFormat] = useState<ImageFormat>('png');
+  const [quality, setQuality] = useState(95);
+  const [backs, setBacks] = useState(true);
+  const [copies, setCopies] = useState(false);
+  const [guides, setGuides] = useState(true);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [error, setError] = useState('');
+  const working = progress !== null;
+  const margin = Number(customMm);
+  const valid = bleed !== 'custom' || (customMm !== '' && Number.isFinite(margin) && margin >= 0 && margin <= 10);
+  const geometry = useMemo(() => imageGeometry(dpi, bleed, valid ? margin : 0), [dpi, bleed, margin, valid]);
+  const previewGeometry = useMemo(() => {
+    const width = 248;
+    const height = Math.round(geometry.height * width / geometry.width);
+    const margin = Math.round(geometry.margin * width / geometry.width);
+    return { width, height, margin, totalWidth: width + 2 * margin, totalHeight: height + 2 * margin };
+  }, [geometry]);
+  const faces = useMemo(() => imageFaces(
+    project.cards.map(card => withProjectTemplate(card, project.templateAppearances)), backs
+  ), [project.cards, project.templateAppearances, backs]);
+  const total = faces.reduce((sum, { card }) => sum + (copies ? card.count : 1), 0);
+  const hasBacks = project.cards.some(card => !!card.source.images.back);
+
+  async function exportCards() {
+    onBusy(true);
+    setError('');
+    setProgress(0);
+    try {
+      const { createCardArchive } = await import('./card-archive.js');
+      const data = await createCardArchive(faces, { geometry, fill, color, format, dpi, quality, copies }, setProgress);
+      if (await window.proxy.cardArchive(project.name, data)) onExport();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setProgress(null);
+      onBusy(false);
+    }
+  }
+
+  return <>
+    <div className="card-export">
+      <div className="card-export-options">
+        <fieldset disabled={working} className="print-options">
+          <label>Abbondanza (bleed)<select value={bleed} onChange={event => setBleed(event.target.value as Bleed)}>
+            <option value="none">Nessuna</option>
+            <option value="mpc">MakePlayingCards · 63 × 88 mm</option>
+            <option value="custom">Personalizzata</option>
+          </select></label>
+          {bleed === 'mpc' && <small>36 px per lato a 300 DPI</small>}
+          {bleed === 'custom' && <label>Abbondanza per lato (mm)<input type="number" min="0" max="10" step="0.1" value={customMm}
+            onChange={event => setCustomMm(event.target.value)} /></label>}
+          {bleed !== 'none' && <>
+            <label>Riempimento<select value={fill} onChange={event => setFill(event.target.value as BleedFill)}>
+              <option value="mirror">Specchia i bordi</option>
+              <option value="solid">Colore uniforme</option>
+            </select></label>
+            {fill === 'solid' && <label className="bleed-color">Colore dell’abbondanza<input type="color" value={color}
+              onChange={event => setColor(event.target.value)} /></label>}
+            <label className="check"><input type="checkbox" checked={guides} onChange={event => setGuides(event.target.checked)} />Mostra linea di taglio</label>
+          </>}
+          <div className="form-row">
+            <label>Formato<select value={format} onChange={event => setFormat(event.target.value as ImageFormat)}>
+              <option value="png">PNG</option><option value="jpg">JPG</option>
+            </select></label>
+            <label>Risoluzione<select value={dpi} onChange={event => setDpi(Number(event.target.value))}>
+              <option value="300">300 DPI</option><option value="600">600 DPI</option>
+            </select></label>
+          </div>
+          {format === 'jpg' && <label>Qualità JPG · {quality}%<input type="range" min="60" max="100" value={quality}
+            onChange={event => setQuality(Number(event.target.value))} /></label>}
+          <label className="check"><input type="checkbox" checked={backs && hasBacks} disabled={!hasBacks}
+            onChange={event => setBacks(event.target.checked)} />Includi i retro disponibili</label>
+          <label className="check"><input type="checkbox" checked={copies} onChange={event => setCopies(event.target.checked)} />Esporta tutte le copie</label>
+        </fieldset>
+        <small>{geometry.totalWidth} × {geometry.totalHeight} px · {total} {total === 1 ? 'immagine' : 'immagini'}</small>
+        {!valid && <p className="error" role="alert">Inserisci un’abbondanza tra 0 e 10 mm.</p>}
+        {total > cardArchiveLimit && <p className="error" role="alert">Lo ZIP può contenere al massimo {cardArchiveLimit} immagini.</p>}
+        {error && <p className="error" role="alert">{error}</p>}
+      </div>
+      <section className="card-export-review" aria-label="Anteprima delle carte">
+        <div className="card-export-grid">
+          {faces.map(({ card, back }) => <CardThumbnail key={`${card.id}/${back}`} card={card} back={back}
+            geometry={previewGeometry} fill={fill} color={color} guides={guides} />)}
+        </div>
+      </section>
+    </div>
+    <div className="dialog-actions card-export-actions">
+      {working && <p role="status">{progress === total ? 'Preparazione dello ZIP…' : `Immagini elaborate: ${progress} di ${total}`}</p>}
+      <button className="primary" disabled={!valid || working || !total || total > cardArchiveLimit}
+        onClick={() => void exportCards()}>Salva ZIP</button>
+    </div>
+  </>;
+}

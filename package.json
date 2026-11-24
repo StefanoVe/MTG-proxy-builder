@@ -1,0 +1,77 @@
+{
+  "name": "mtg-proxy-builder",
+  "productName": "MTG Proxy Builder",
+  "version": "0.1.16",
+  "private": true,
+  "description": "Editor desktop per creare e stampare proxy di Magic: The Gathering",
+  "author": "MTG Proxy Builder",
+  "type": "module",
+  "main": "dist-main/main/main.js",
+  "scripts": {
+    "dev": "npm run build && electron .",
+    "build": "tsc --noEmit && tsc -p tsconfig.main.json && vite build",
+    "test": "node --disable-warning=ExperimentalWarning --experimental-strip-types --test tests/*.test.ts",
+    "package": "npm run build && electron-builder --dir",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "test:desktop": "node tests/desktop-smoke.mjs"
+  },
+  "dependencies": {
+    "@heroicons/react": "^2.2.0",
+    "fflate": "0.8.2",
+    "pdf-lib": "1.17.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.14",
+    "electron": "41.3.0",
+    "electron-builder": "26.8.1",
+    "playwright": "1.64.1",
+    "typescript": "5.9.3",
+    "vite": "7.3.7"
+  },
+  "build": {
+    "appId": "it.mtgproxybuilder.desktop",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-main/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.graphics-design"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
+  },
+  "allowScripts": {
+    "electron@41.3.0": true,
+    "esbuild@0.28.2": true
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
