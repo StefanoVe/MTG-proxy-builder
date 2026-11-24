@@ -65,7 +65,7 @@ export const templateAppearanceSchema = z.object({
   titleBlur: z.number().min(0).max(32).optional(), rulesBlur: z.number().min(0).max(32).optional(),
   topEffect: templateEffectSchema.optional(), bottomEffect: templateEffectSchema.optional(),
   titleDivider: z.boolean().optional(), dividerLength: z.number().min(5).max(100).optional(),
-  dividerWeight: z.number().min(1).max(12).optional(),
+  dividerWeight: z.number().min(1).max(12).optional(), dividerPadding: z.number().min(0).max(100).optional(),
   dividerAlign: z.enum(['left', 'center', 'right']).optional(),
   dividerStyle: z.enum(['solid', 'fade', 'dashed']).optional(),
   decorations: z.array(decorationSchema).max(maxDecorations).optional()

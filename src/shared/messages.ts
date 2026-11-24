@@ -164,6 +164,7 @@ export const messages = {
   dividerColor: ["Colore dei divisori", "Divider color"],
   dividerLength: ["Lunghezza dei divisori", "Divider length"],
   dividerWeight: ["Spessore dei divisori", "Divider thickness"],
+  dividerPadding: ["Distanza dei divisori dal testo", "Divider distance from text"],
   alignment: ["Allineamento", "Alignment"],
   left: ["Sinistra", "Left"],
   center: ["Centro", "Center"],

@@ -198,6 +198,7 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
             <div className="template-control-grid">
               <Slider label={t('dividerLength')} value={appearance.dividerLength ?? 100} min={5} max={100} unit="%" change={dividerLength => patch({ dividerLength })} />
               <Slider label={t('dividerWeight')} value={appearance.dividerWeight ?? 2} min={1} max={12} unit=" px" change={dividerWeight => patch({ dividerWeight })} />
+              <Slider label={t('dividerPadding')} value={appearance.dividerPadding ?? 6} max={100} unit=" px" change={dividerPadding => patch({ dividerPadding })} />
               <label>{t('alignment')}<select value={appearance.dividerAlign ?? 'center'} onChange={event =>
                 patch({ dividerAlign: event.target.value as TemplateAppearance['dividerAlign'] })}>
                 <option value="left">{t('left')}</option><option value="center">{t('center')}</option><option value="right">{t('right')}</option>

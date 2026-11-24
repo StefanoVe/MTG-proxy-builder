@@ -101,7 +101,8 @@ export function drawTemplateDividers(ctx: CanvasRenderingContext2D, appearance: 
     const rect = templateBox(appearance.zones[zone]);
     const length = rect.w * (appearance.dividerLength ?? 100) / 100;
     const x = rect.x + (rect.w - length) * (alignment === 'left' ? 0 : alignment === 'right' ? 1 : .5);
-    const y = zone === 'title' ? rect.y + rect.h + 6 : rect.y - 8;
+    const y = zone === 'title' ? rect.y + rect.h + (appearance.dividerPadding ?? 6)
+      : appearance.dividerPadding === undefined ? rect.y - 8 : rect.y - appearance.dividerPadding - weight;
     ctx.save();
     if (appearance.dividerStyle === 'fade') {
       const fade = ctx.createLinearGradient(x, 0, x + length, 0);
