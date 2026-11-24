@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { detectedArtZone } from './compose.js';
 import { cardArtZone, defaultCrop, frameColorNames, isTemplate, printingFields, templateNames } from '../shared/model.js';
 import type { Asset, Card, CardFontFamily, FrameSet, Preset, Rect, TemplateAppearance, Zones } from '../shared/model.js';
+import { isCardModified } from '../shared/model.js';
 import { Icon } from './Icon.js';
 import type { IconName } from './Icon.js';
 
@@ -100,8 +101,9 @@ function EditionDetails({ card }: { card: Card }) {
   </div>;
 }
 
-export function Inspector({ card, renderedCard, sharedFrame, presets, update, selectAssets, choosePrinting, zone, selectZone, savePreset, fullArtBase, frameSets, editFrameSet, systemFonts }: {
+export function Inspector({ card, renderedCard, sharedFrame, presets, update, resetCard, selectAssets, choosePrinting, zone, selectZone, savePreset, fullArtBase, frameSets, editFrameSet, systemFonts }: {
   card: Card; renderedCard: Card; sharedFrame: boolean; presets: Preset[]; update: (patch: Partial<Card>) => void;
+  resetCard: () => void;
   selectAssets: (frame: boolean) => Promise<Asset | undefined>;
   choosePrinting: () => void; zone: keyof Zones | undefined; selectZone: (zone: keyof Zones | undefined) => void;
   savePreset: (name: string) => void;
@@ -141,7 +143,7 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, se
     selectZone('art');
   }
   if (!card.source.editable) return <aside className="inspector">
-    <div className="panel-title"><h2>{t('printing')}</h2></div>
+    <div className="panel-title"><h2>{t('printing')}</h2><button className="icon-button" aria-label={t('resetCard')} title={t('resetCard')} disabled={!isCardModified(card)} onClick={resetCard}><Icon name="reset" /></button></div>
     <div className="fields">
       <h3>{card.source.name}</h3>
       <p className="muted">{card.source.setName} · {card.source.number}</p>
@@ -158,7 +160,7 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, se
   </aside>;
 
   return <aside className="inspector">
-    <div className="panel-title"><h2>{t('properties')}</h2></div>
+    <div className="panel-title"><h2>{t('properties')}</h2><button className="icon-button" aria-label={t('resetCard')} title={t('resetCard')} disabled={!isCardModified(card)} onClick={resetCard}><Icon name="reset" /></button></div>
     <div className="tabs" role="group" aria-label={t('cardProperties')}>
       {(['card', 'art', 'frame'] as const).map(item => <button key={item} aria-pressed={item === tab}
         onClick={() => { setTab(item); if (item !== 'frame') selectZone(undefined); }}>

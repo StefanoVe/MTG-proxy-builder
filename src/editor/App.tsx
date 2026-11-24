@@ -82,6 +82,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [draggingImage, setDraggingImage] = useState(false);
   const [query, setQuery] = useState('');
+  const [listQuery, setListQuery] = useState('');
   const [searchFeedback, setSearchFeedback] = useState<Error>();
   const [searching, setSearching] = useState(false);
   const [imageLoads, setImageLoads] = useState<Set<string>>(new Set());
@@ -108,6 +109,7 @@ export function App() {
     setProject(value);
     setActive(value.cards[0]?.id ?? '');
     setSelected(new Set());
+    setListQuery('');
     setHistory([]);
     lastHistory.current = 0;
     setChoices([]);
@@ -423,6 +425,7 @@ export function App() {
   if (!project) return <div className="initial" role="status">{t('openingApp')}</div>;
   const total = project.cards.reduce((sum, item) => sum + item.count, 0);
   const selection = project.cards.filter(item => selected.has(item.id));
+  const visibleCards = project.cards.filter(item => (item.fields.name || t('untitledCard')).toLocaleLowerCase(locale).includes(listQuery.trim().toLocaleLowerCase(locale)));
   const batchCards = selection.length ? selection : project.cards;
   const loadingImage = !!renderedCard && (imageLoads.has(imageKey(project.id, renderedCard)) || needsDownload(renderedCard));
   const catalogSearch = <div className="catalog-search">
@@ -490,10 +493,15 @@ export function App() {
           </div>
         </div>
         {project.cards.length > 0 && <>
+          <div className="deck-list-search">
+            <input type="search" aria-label={t('filterAddedCards')} placeholder={t('filterAddedCards')} value={listQuery} onChange={event => setListQuery(event.target.value)} />
+          </div>
           <div className="selection-bar">
-            <label className="check"><input type="checkbox" aria-label={t('selectAll')} checked={selection.length === project.cards.length} onChange={event =>
-              setSelected(event.target.checked ? new Set(project.cards.map(item => item.id)) : new Set())
-            } />{selection.length ? t('selectedCount', { count: selection.length }) : t('all')}</label>
+            <label className="check"><input type="checkbox" aria-label={t('selectVisibleCards')} disabled={!visibleCards.length} checked={visibleCards.length > 0 && visibleCards.every(item => selected.has(item.id))} onChange={event => {
+              const next = new Set(selected);
+              visibleCards.forEach(item => event.target.checked ? next.add(item.id) : next.delete(item.id));
+              setSelected(next);
+            }} />{selection.length ? t('selectedCount', { count: selection.length }) : t('all')}</label>
             <div className="selection-actions" role="group" aria-label={t('deckActions')}>
               <button className="icon-label" aria-label={t('batchEdit')} title={t('batchEdit')} disabled={busy} onClick={() => { setError(''); setPanel('batch'); }}><Icon name="batch" /><span>{t('batch')}</span></button>
               <button className="icon-button" aria-label={selection.length ? t(selection.length === 1 ? 'removeCardsOne' : 'removeCards', { count: selection.length }) : t('removeSelectedCards')} title={t('removeSelected')} disabled={!selection.length || busy} onClick={() => {
@@ -503,7 +511,7 @@ export function App() {
             </div>
           </div>
           <ul className="deck-list">
-            {project.cards.map(item => {
+            {visibleCards.map(item => {
               const modified = isCardModified(item) ? t('modifiedCard') : undefined;
               return <li key={item.id} className={item.id === card?.id ? 'active' : ''}>
                 <input type="checkbox" aria-label={t('selectCard', { name: item.fields.name })} checked={selected.has(item.id)} onChange={() => toggleSelected(item.id)} />
@@ -523,6 +531,7 @@ export function App() {
               </li>;
             })}
           </ul>
+          {!visibleCards.length && <p className="deck-list-empty" role="status">{t('noAddedCardsFound')}</p>}
         </>}
       </aside>
       <main className="stage" onDragOver={event => { if (card?.source.editable && event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDraggingImage(true); } }} onDragLeave={event => {
@@ -571,6 +580,10 @@ export function App() {
       </main>
       {card && renderedCard ? <Inspector key={card.id} card={card} renderedCard={renderedCard} sharedFrame={!!sharedFrame} presets={project.presets} frameSets={project.frameSets ?? []}
         systemFonts={systemFonts}
+        resetCard={() => {
+          commit(value => ({ ...value, cards: value.cards.map(item => item.id === card.id ? { ...createCard(item.source, item.count), id: item.id } : item) }));
+          setZone(undefined); setBack(false);
+        }}
         editFrameSet={set => saveColorSet(set, [], true)} update={patch => update(card.id, patch, true)}
         selectAssets={selectAssets} choosePrinting={() => choosePrinting('printings')} zone={zone} selectZone={setZone}
         fullArtBase={project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase}
