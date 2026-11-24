@@ -40,32 +40,7 @@ Per carte da **63 × 88 mm**, stampa il PDF al **100%**. Per le carte a due facc
 
 ## Server MCP
 
-MTG Proxy Builder include un server MCP locale su `stdio`. Il client avvia una seconda istanza senza finestra visibile. Il server usa la stessa libreria locale dell’editor e può funzionare con l’editor aperto.
-
-Nel client MCP aggiungi una configurazione come questa, usando il percorso assoluto dell’eseguibile installato.
-
-```json
-{
-  "mcpServers": {
-    "mtg-proxy-builder": {
-      "command": "/Applications/MTG Proxy Builder.app/Contents/MacOS/MTG Proxy Builder",
-      "args": ["--mcp"]
-    }
-  }
-}
-```
-
-Su Windows imposta `command` sul percorso di `MTG Proxy Builder.exe`, con i backslash raddoppiati nel JSON. Per avviare il server dal repository, esegui `npm ci` e `npm run build`, poi usa `npm` come comando e `["--prefix", "/percorso/assoluto/mtg-proxy-builder", "--silent", "run", "mcp"]` come argomenti.
-
-| Strumenti | Operazioni |
-| --- | --- |
-| `list_projects`, `get_project` | Elenca e legge i progetti salvati. |
-| `search_cards`, `list_printings`, `get_printing` | Cerca carte, edizioni e dettagli su Scryfall. |
-| `parse_decklist`, `import_decklist` | Controlla le righe offline o importa la lista da Scryfall in un nuovo progetto. Usa `allowPartial: true` per salvare le righe riuscite anche in presenza di errori. |
-| `import_image`, `save_project_copy` | Importa illustrazioni o cornici e salva un progetto completo con un nuovo ID. Per modificare un progetto esistente, parti dai dati restituiti da `get_project`. |
-| `export_pdf`, `export_cards` | Esporta un progetto salvato in PDF A4 o Letter oppure in uno ZIP con PNG o JPG. Indica un nuovo percorso assoluto in una cartella esistente. |
-
-I nuovi progetti compaiono nell’elenco quando l’editor torna in primo piano. Lo smoke test MCP si avvia con `npm run build && npm run test:mcp`.
+Il server MCP è temporaneamente disattivato a causa di un problema di avvio su Windows. [Segui la riattivazione su GitHub](https://github.com/StefanoVe/mtg-proxy-builder/issues/2).
 
 ## Sviluppo
 

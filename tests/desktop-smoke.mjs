@@ -24,10 +24,11 @@ try {
   await language.selectOption('en');
   await page.getByRole('heading', { name: 'Find a card' }).waitFor({ timeout: 10000 });
   await page.getByRole('button', { name: 'Import decklist' }).click();
-  await page.getByLabel('Decklist', { exact: true }).fill('0 Mountain');
+  const decklist = page.getByRole('textbox', { name: 'Decklist', exact: true });
+  await decklist.fill('0 Mountain');
   await page.getByRole('button', { name: 'Import cards' }).click();
   await page.getByText('Line 1 · 0 Mountain').waitFor();
-  await page.getByLabel('Decklist', { exact: true }).fill('');
+  await decklist.clear();
   await page.getByRole('button', { name: 'Close' }).click();
   await page.reload();
   await page.getByRole('heading', { name: 'Find a card' }).waitFor();

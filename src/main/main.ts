@@ -157,7 +157,12 @@ function createWindow() {
   void editor.loadFile(rendererPath);
 }
 
-if (process.argv.includes('--mcp')) {
+const mcpEnabled = false;
+const mcpRequested = process.argv.includes('--mcp');
+if (mcpRequested && !mcpEnabled) {
+  console.error('MCP support is temporarily disabled.');
+  app.exit(1);
+} else if (mcpRequested) {
   const sessionDir = mkdtempSync(join(tmpdir(), 'mtg-proxy-builder-mcp-'));
   app.setPath('sessionData', sessionDir);
   // Closing a hidden export window must leave the stdio server running.
