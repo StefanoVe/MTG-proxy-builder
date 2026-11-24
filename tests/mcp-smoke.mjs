@@ -13,10 +13,15 @@ const require = createRequire(import.meta.url);
 const root = await mkdtemp(join(tmpdir(), 'mtg-mcp-smoke-'));
 const profile = join(root, 'profile');
 const executable = process.env.MTG_SMOKE_EXECUTABLE;
+const windows = process.platform === 'win32';
+const electronLog = join(root, 'electron.log');
 const transport = new StdioClientTransport({
   command: executable ? resolve(executable) : require('electron'),
-  args: [...(executable ? [] : ['.']), '--mcp', `--user-data-dir=${profile}`],
-  env: process.platform === 'win32' ? { ELECTRON_NO_ATTACH_CONSOLE: '1' } : undefined,
+  args: [
+    ...(executable ? [] : ['.']), '--mcp', `--user-data-dir=${profile}`,
+    ...(windows ? ['--enable-logging=file', `--log-file=${electronLog}`] : [])
+  ],
+  env: windows ? { ELECTRON_NO_ATTACH_CONSOLE: '1' } : undefined,
   stderr: 'pipe'
 });
 transport.stderr?.pipe(process.stderr, { end: false });
@@ -31,7 +36,12 @@ async function ok(name, args) {
 }
 
 try {
-  await client.connect(transport, { timeout: 20_000 });
+  const connection = client.connect(transport, { timeout: 20_000 });
+  if (windows) {
+    transport._process?.once('exit', (code, signal) => console.error('Electron MCP exit:', code, signal));
+  }
+  await connection;
+  console.log('Connected to the MCP server.');
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map(tool => tool.name).sort(), [
     'export_cards', 'export_pdf', 'get_printing', 'get_project', 'import_decklist', 'import_image',
@@ -76,6 +86,13 @@ try {
   assert.deepEqual(await readFile(pdf), original);
   assert.deepEqual(protocolErrors, []);
   console.log('MCP smoke passed.');
+} catch (error) {
+  if (windows) {
+    const log = await readFile(electronLog, 'utf8').catch(() => '');
+    if (log) console.error(log);
+    for (const protocolError of protocolErrors) console.error(protocolError);
+  }
+  throw error;
 } finally {
   await client.close();
   await rm(root, { recursive: true, force: true, maxRetries: 3 });
