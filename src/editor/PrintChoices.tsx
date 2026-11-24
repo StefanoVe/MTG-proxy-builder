@@ -1,7 +1,9 @@
+import { useI18n } from './i18n.js';
 import type { Card } from '../shared/model.js';
 import { Preview } from './Preview.js';
 
 export function PrintChoices({ cards, choose }: { cards: Card[]; choose: (mode: 'sheet' | 'cards') => void }) {
+  const { t } = useI18n();
   const sheet: Card[] = [];
   for (const card of cards) {
     const count = Math.min(card.count, 9 - sheet.length);
@@ -16,8 +18,8 @@ export function PrintChoices({ cards, choose }: { cards: Card[]; choose: (mode: 
           {sheet.map((card, index) => <Preview key={index} card={card} />)}
         </div>
       </div>
-      <strong id="choice-sheet">Foglio di stampa</strong>
-      <small id="choice-sheet-detail">PDF A4 o Letter, con più carte per pagina</small>
+      <strong id="choice-sheet">{t('printSheet')}</strong>
+      <small id="choice-sheet-detail">{t('printSheetDetails')}</small>
     </button>
     <button className="print-choice" onClick={() => choose('cards')} aria-labelledby="choice-cards" aria-describedby="choice-cards-detail">
       <div className="choice-preview" aria-hidden="true">
@@ -25,8 +27,8 @@ export function PrintChoices({ cards, choose }: { cards: Card[]; choose: (mode: 
           {spread.map((card, index) => <Preview key={index} card={card} />)}
         </div>
       </div>
-      <strong id="choice-cards">Carte singole</strong>
-      <small id="choice-cards-detail">Immagini PNG o JPG, con abbondanza opzionale</small>
+      <strong id="choice-cards">{t('individualCards')}</strong>
+      <small id="choice-cards-detail">{t('individualCardsDetails')}</small>
     </button>
   </div>;
 }

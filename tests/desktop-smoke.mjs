@@ -20,7 +20,22 @@ let electron = await launch();
 try {
   let page = await electron.firstWindow();
   page.on('pageerror', error => console.error('Page error:', error));
+  const language = page.locator('.language-select');
+  await language.selectOption('en');
+  await page.getByRole('heading', { name: 'Find a card' }).waitFor({ timeout: 10000 });
+  await page.getByRole('button', { name: 'Import decklist' }).click();
+  await page.getByLabel('Decklist', { exact: true }).fill('0 Mountain');
+  await page.getByRole('button', { name: 'Import cards' }).click();
+  await page.getByText('Line 1 · 0 Mountain').waitFor();
+  await page.getByLabel('Decklist', { exact: true }).fill('');
+  await page.getByRole('button', { name: 'Close' }).click();
+  await page.reload();
+  await page.getByRole('heading', { name: 'Find a card' }).waitFor();
+  assert.equal(await page.locator('html').getAttribute('lang'), 'en');
+  assert.equal(await language.inputValue(), 'en');
+  await language.selectOption('it');
   await page.getByRole('heading', { name: 'Cerca una carta' }).waitFor({ timeout: 10000 });
+  assert.equal(await page.locator('html').getAttribute('lang'), 'it');
   await page.screenshot({ path: join(paths, 'empty.png') });
   const assetFiles = await page.evaluate(() => {
     const canvas = document.createElement('canvas');

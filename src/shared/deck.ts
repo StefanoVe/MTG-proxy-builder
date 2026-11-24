@@ -5,8 +5,13 @@ export function normalizeName(name: string): string {
 }
 
 export function parseDeck(text: string): { entries: DeckEntry[]; errors: string[] } {
+  const { entries, invalidLines } = parseDeckRows(text);
+  return { entries, errors: invalidLines.map(({ number, line }) => `Riga ${number} · ${line}`) };
+}
+
+export function parseDeckRows(text: string) {
   const entries: DeckEntry[] = [];
-  const errors: string[] = [];
+  const invalidLines: { number: number; line: string }[] = [];
   for (const [index, raw] of text.replace(/^\uFEFF/, '').split(/\r?\n/).entries()) {
     const line = raw.trim();
     if (!line || /^(#|\/\/)/.test(line) || /^(deck|commander|sideboard|maybeboard|companion|mazzo|comandante|sideboard|tokens):?$/i.test(line)) continue;
@@ -16,12 +21,12 @@ export function parseDeck(text: string): { entries: DeckEntry[]; errors: string[
     const cleaned = content.replace(/\s+\*[^*]+\*\s*$/, '').trim();
     const [, name, set, number] = /^(.*?)(?:\s+\(([a-z0-9]+)\)\s+(\S+))?$/i.exec(cleaned) ?? [];
     if (!name || !normalizeName(name) || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 999 || name.length > 300) {
-      errors.push(`Riga ${index + 1} · ${line}`);
+      invalidLines.push({ number: index + 1, line });
       continue;
     }
     entries.push({ name: name.trim(), count: quantity, ...(set && number ? { set: set.toLowerCase(), number } : {}) });
   }
-  return { entries, errors };
+  return { entries, invalidLines };
 }
 
 export type BatchRow = { asset: Asset; cardId: string; accept: boolean };

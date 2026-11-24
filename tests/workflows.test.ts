@@ -74,6 +74,7 @@ test('saved project templates override existing and future cards of the correspo
   const legacy = { ...templateAppearance(fullArt), textColor: '#112233' };
   const changed = {
     ...templateAppearance(fullArt), autoTextColor: true, shadeColor: '#445566', titleBlur: 12,
+    topEffect: { anchor: 'title', height: 18 }, bottomEffect: { anchor: 'manual', height: 31.5 },
     dividerLength: 40, decorations: [{
       id: crypto.randomUUID(), name: 'Incisione', source: { kind: 'motif', motif: 'frame' },
       rect: { x: 2, y: 2, w: 96, h: 96 }, opacity: .8, tint: 'card', color: '#ffffff', fit: 'stretch'

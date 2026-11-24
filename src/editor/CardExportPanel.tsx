@@ -1,3 +1,5 @@
+import { errorMessage, LocalizedError } from '../shared/i18n.js';
+import { useI18n } from './i18n.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Card, Project } from '../shared/model.js';
 import { withProjectTemplate } from '../shared/templates.js';
@@ -11,9 +13,10 @@ type Geometry = ReturnType<typeof imageGeometry>;
 function CardThumbnail({ card, back, geometry, fill, color, guides }: {
   card: Card; back: boolean; geometry: Geometry; fill: BleedFill; color: string; guides: boolean;
 }) {
+  const { t, locale } = useI18n();
   const ref = useRef<HTMLCanvasElement>(null);
   const [source, setSource] = useState<HTMLCanvasElement>();
-  const [warning, setWarning] = useState('');
+  const [warning, setWarning] = useState<Error>();
   useEffect(() => {
     const canvas = ref.current!;
     let visible = false;
@@ -36,9 +39,9 @@ function CardThumbnail({ card, back, geometry, fill, color, guides }: {
         context.imageSmoothingQuality = 'high';
         context.drawImage(composed, 0, 0, thumbnail.width, thumbnail.height);
         setSource(thumbnail);
-        setWarning(warning ?? '');
+        setWarning(warning ? new LocalizedError(warning) : undefined);
       }).catch((cause: unknown) => {
-        if (visible && canvas.isConnected) setWarning(cause instanceof Error ? cause.message : String(cause));
+        if (visible && canvas.isConnected) setWarning(cause instanceof Error ? cause : new Error(String(cause)));
       });
     }, { rootMargin: '140px' });
     observer.observe(canvas);
@@ -51,7 +54,7 @@ function CardThumbnail({ card, back, geometry, fill, color, guides }: {
     if (source && ref.current) drawCardImage(ref.current, source, geometry, fill, color);
   }, [source, geometry, fill, color]);
 
-  const side = back ? 'Retro' : 'Fronte';
+  const side = back ? t('back') : t('front');
   return <figure className="card-export-item">
     <div className="card-export-image" style={{ aspectRatio: `${geometry.totalWidth} / ${geometry.totalHeight}` }}>
       <canvas ref={ref} width={1} height={1} role="img" aria-label={`${card.fields.name} · ${side}`} />
@@ -60,13 +63,14 @@ function CardThumbnail({ card, back, geometry, fill, color, guides }: {
       }} aria-hidden="true" />}
     </div>
     <figcaption><strong>{card.fields.name}</strong><small>{side}{card.count > 1 && ` · ×${card.count}`}</small></figcaption>
-    {warning && <small className="error" role="status">{warning}</small>}
+    {warning && <small className="error" role="status">{errorMessage(warning, locale)}</small>}
   </figure>;
 }
 
 export function CardExportPanel({ project, onBusy, onExport }: {
   project: Project; onBusy: (busy: boolean) => void; onExport: () => void;
 }) {
+  const { t, locale } = useI18n();
   const [bleed, setBleed] = useState<Bleed>('none');
   const [customMm, setCustomMm] = useState('3');
   const [fill, setFill] = useState<BleedFill>('mirror');
@@ -101,10 +105,10 @@ export function CardExportPanel({ project, onBusy, onExport }: {
     setProgress(0);
     try {
       const { createCardArchive } = await import('./card-archive.js');
-      const data = await createCardArchive(faces, { geometry, fill, color, format, dpi, quality, copies }, setProgress);
+      const data = await createCardArchive(faces, { geometry, fill, color, format, dpi, quality, copies }, setProgress, locale);
       if (await window.proxy.cardArchive(project.name, data)) onExport();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause, locale));
     } finally {
       setProgress(null);
       onBusy(false);
@@ -115,43 +119,43 @@ export function CardExportPanel({ project, onBusy, onExport }: {
     <div className="card-export">
       <div className="card-export-options">
         <fieldset disabled={working} className="print-options">
-          <label>Abbondanza (bleed)<select value={bleed} onChange={event => setBleed(event.target.value as Bleed)}>
-            <option value="none">Nessuna</option>
+          <label>{t('bleed')}<select value={bleed} onChange={event => setBleed(event.target.value as Bleed)}>
+            <option value="none">{t('none')}</option>
             <option value="mpc">MakePlayingCards · 63 × 88 mm</option>
-            <option value="custom">Personalizzata</option>
+            <option value="custom">{t('customBleed')}</option>
           </select></label>
-          {bleed === 'mpc' && <small>36 px per lato a 300 DPI</small>}
-          {bleed === 'custom' && <label>Abbondanza per lato (mm)<input type="number" min="0" max="10" step="0.1" value={customMm}
+          {bleed === 'mpc' && <small>{t('mpcBleed')}</small>}
+          {bleed === 'custom' && <label>{t('bleedPerSide')}<input type="number" min="0" max="10" step="0.1" value={customMm}
             onChange={event => setCustomMm(event.target.value)} /></label>}
           {bleed !== 'none' && <>
-            <label>Riempimento<select value={fill} onChange={event => setFill(event.target.value as BleedFill)}>
-              <option value="mirror">Specchia i bordi</option>
-              <option value="solid">Colore uniforme</option>
+            <label>{t('fill')}<select value={fill} onChange={event => setFill(event.target.value as BleedFill)}>
+              <option value="mirror">{t('mirrorEdges')}</option>
+              <option value="solid">{t('solidColor')}</option>
             </select></label>
-            {fill === 'solid' && <label className="bleed-color">Colore dell’abbondanza<input type="color" value={color}
+            {fill === 'solid' && <label className="bleed-color">{t('bleedColor')}<input type="color" value={color}
               onChange={event => setColor(event.target.value)} /></label>}
-            <label className="check"><input type="checkbox" checked={guides} onChange={event => setGuides(event.target.checked)} />Mostra linea di taglio</label>
+            <label className="check"><input type="checkbox" checked={guides} onChange={event => setGuides(event.target.checked)} />{t('showTrimGuide')}</label>
           </>}
           <div className="form-row">
-            <label>Formato<select value={format} onChange={event => setFormat(event.target.value as ImageFormat)}>
+            <label>{t('format')}<select value={format} onChange={event => setFormat(event.target.value as ImageFormat)}>
               <option value="png">PNG</option><option value="jpg">JPG</option>
             </select></label>
-            <label>Risoluzione<select value={dpi} onChange={event => setDpi(Number(event.target.value))}>
+            <label>{t('resolution')}<select value={dpi} onChange={event => setDpi(Number(event.target.value))}>
               <option value="300">300 DPI</option><option value="600">600 DPI</option>
             </select></label>
           </div>
-          {format === 'jpg' && <label>Qualità JPG · {quality}%<input type="range" min="60" max="100" value={quality}
+          {format === 'jpg' && <label>{t('jpgQuality', { value: quality })}<input type="range" min="60" max="100" value={quality}
             onChange={event => setQuality(Number(event.target.value))} /></label>}
           <label className="check"><input type="checkbox" checked={backs && hasBacks} disabled={!hasBacks}
-            onChange={event => setBacks(event.target.checked)} />Includi i retro disponibili</label>
-          <label className="check"><input type="checkbox" checked={copies} onChange={event => setCopies(event.target.checked)} />Esporta tutte le copie</label>
+            onChange={event => setBacks(event.target.checked)} />{t('includeAvailableBacks')}</label>
+          <label className="check"><input type="checkbox" checked={copies} onChange={event => setCopies(event.target.checked)} />{t('exportAllCopies')}</label>
         </fieldset>
-        <small>{geometry.totalWidth} × {geometry.totalHeight} px · {total} {total === 1 ? 'immagine' : 'immagini'}</small>
-        {!valid && <p className="error" role="alert">Inserisci un’abbondanza tra 0 e 10 mm.</p>}
-        {total > cardArchiveLimit && <p className="error" role="alert">Lo ZIP può contenere al massimo {cardArchiveLimit} immagini.</p>}
+        <small>{geometry.totalWidth} × {geometry.totalHeight} px · {t(total === 1 ? 'imageCountOne' : 'imageCount', { count: total })}</small>
+        {!valid && <p className="error" role="alert">{t('bleedRange')}</p>}
+        {total > cardArchiveLimit && <p className="error" role="alert">{t('zipImageLimit', { limit: cardArchiveLimit })}</p>}
         {error && <p className="error" role="alert">{error}</p>}
       </div>
-      <section className="card-export-review" aria-label="Anteprima delle carte">
+      <section className="card-export-review" aria-label={t('cardPreviews')}>
         <div className="card-export-grid">
           {faces.map(({ card, back }) => <CardThumbnail key={`${card.id}/${back}`} card={card} back={back}
             geometry={previewGeometry} fill={fill} color={color} guides={guides} />)}
@@ -159,9 +163,9 @@ export function CardExportPanel({ project, onBusy, onExport }: {
       </section>
     </div>
     <div className="dialog-actions card-export-actions">
-      {working && <p role="status">{progress === total ? 'Preparazione dello ZIP…' : `Immagini elaborate: ${progress} di ${total}`}</p>}
+      {working && <p role="status">{progress === total ? t('preparingZip') : t('imagesProcessed', { done: progress, total })}</p>}
       <button className="primary" disabled={!valid || working || !total || total > cardArchiveLimit}
-        onClick={() => void exportCards()}>Salva ZIP</button>
+        onClick={() => void exportCards()}>{t('saveZip')}</button>
     </div>
   </>;
 }

@@ -3,6 +3,8 @@ import type { ProxyAPI } from '../shared/model.js';
 
 const { contextBridge, ipcRenderer } = electron;
 const bridge: ProxyAPI = {
+  getLocale: () => ipcRenderer.invoke('locale:get'),
+  setLocale: locale => ipcRenderer.invoke('locale:set', locale),
   fonts: () => ipcRenderer.invoke('fonts:list'),
   projects: () => ipcRenderer.invoke('projects:list'),
   open: id => ipcRenderer.invoke('projects:open', id),

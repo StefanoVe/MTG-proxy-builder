@@ -1,3 +1,5 @@
+import { errorMessage, LocalizedError } from '../shared/i18n.js';
+import { useI18n } from './i18n.js';
 import { cardZones } from './card-zones.js';
 import { cardArtZone } from '../shared/model.js';
 import { useEffect, useRef, useState } from 'react';
@@ -15,8 +17,9 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
   hideWarning?: boolean;
   onZone?: (rect: Rect) => void;
 }) {
+  const { t, locale } = useI18n();
   const ref = useRef<HTMLCanvasElement>(null);
-  const [warning, setWarning] = useState('');
+  const [warning, setWarning] = useState<Error>();
   const drag = useRef<{ x: number; y: number; crop: Card['crop']; rect?: Rect; resize: boolean } | null>(null);
   const rect = guide ?? (zone === 'art' && card.frame.kind === 'printing' ? cardArtZone(card)
     : zone && card.frame.kind !== 'printing' ? cardZones(card)[zone] : undefined);
@@ -30,12 +33,12 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
       canvas.width = offscreen.width;
       canvas.height = offscreen.height;
       canvas.getContext('2d')!.drawImage(offscreen, 0, 0);
-      setWarning(hideWarning ? '' : warning ?? '');
+      setWarning(!hideWarning && warning ? new LocalizedError(warning) : undefined);
     }).catch((error: Error) => {
       if (!active) return;
       const canvas = ref.current;
       if (canvas) canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
-      setWarning(error.message);
+      setWarning(error);
     });
     return () => { active = false; };
   }, [card, back, hideWarning]);
@@ -73,7 +76,7 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
   return <div className="preview-wrap">
     <div className={`card-preview ${canDrag ? 'is-draggable' : ''}`} onPointerDown={start} onPointerMove={move}
       onLostPointerCapture={() => { drag.current = null; }}>
-      <canvas ref={ref} role="img" aria-label={back ? 'Retro della carta' : `Anteprima di ${card.fields.name}`} />
+      <canvas ref={ref} role="img" aria-label={back ? t('cardBack') : t('cardPreview', { name: card.fields.name })} />
       {showThirds && <div className="thirds-grid" aria-hidden="true">
         <i className="thirds-grid-line thirds-grid-line-v" />
         <i className="thirds-grid-line thirds-grid-line-v" />
@@ -84,6 +87,6 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
         <span className="zone-resize" aria-hidden="true" />
       </div>}
     </div>
-    {warning && <span className="preview-warning" role="status">{warning}</span>}
+    {warning && <span className="preview-warning" role="status">{errorMessage(warning, locale)}</span>}
   </div>;
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Locale } from './i18n.js';
 
 export const assetId = z.string().regex(/^[a-f0-9]{64}$/);
 const uuid = z.uuid();
@@ -30,7 +31,7 @@ export const cardDataSchema = z.object({
     faces: z.array(faceDetails).max(10) }).optional()
 });
 export const tones = ['auto', 'white', 'blue', 'black', 'red', 'green', 'multi', 'artifact', 'land'] as const;
-export const templateNames = { 'full-art': 'Full art', 'extended-art': 'Illustrazione estesa' } as const;
+export const templateNames = { 'full-art': 'fullArt', 'extended-art': 'extendedArt' } as const;
 export type Template = keyof typeof templateNames;
 const templateSchema = z.enum(Object.keys(templateNames) as Template[]);
 export function isTemplate(value: string): value is Template {
@@ -51,12 +52,18 @@ const decorationSchema = z.object({
 });
 export type FrameDecoration = z.infer<typeof decorationSchema>;
 export const maxDecorations = 12;
+const templateEffectSchema = z.object({
+  anchor: z.enum(['title', 'type', 'rules', 'manual']),
+  height: z.number().min(0).max(100).optional()
+});
+export type TemplateEffect = z.infer<typeof templateEffectSchema>;
 export const templateAppearanceSchema = z.object({
   zones: zonesSchema, overlay: assetId.optional(),
   textColor: hexColor, fontFamily: fontFamilySchema.optional(), accent: hexColor.optional(), divider: z.boolean(),
   titleShade: z.number().min(0).max(1), rulesShade: z.number().min(0).max(1),
   autoTextColor: z.boolean().optional(), shadeColor: hexColor.optional(),
   titleBlur: z.number().min(0).max(32).optional(), rulesBlur: z.number().min(0).max(32).optional(),
+  topEffect: templateEffectSchema.optional(), bottomEffect: templateEffectSchema.optional(),
   titleDivider: z.boolean().optional(), dividerLength: z.number().min(5).max(100).optional(),
   dividerWeight: z.number().min(1).max(12).optional(),
   dividerAlign: z.enum(['left', 'center', 'right']).optional(),
@@ -66,7 +73,7 @@ export const templateAppearanceSchema = z.object({
 export type TemplateAppearance = z.infer<typeof templateAppearanceSchema>;
 
 export const frameColors = ['W', 'U', 'B', 'R', 'G', 'C'] as const;
-export const frameColorNames = { W: 'Bianco', U: 'Blu', B: 'Nero', R: 'Rosso', G: 'Verde', C: 'Incolore' } as const;
+export const frameColorNames = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless' } as const;
 export const frameSetAssetsSchema = z.object({ W: assetId, U: assetId, B: assetId, R: assetId, G: assetId, C: assetId });
 export const frameSetSchema = z.object({
   id: uuid, name: z.string().trim().min(1).max(100), assets: frameSetAssetsSchema, mix: z.boolean(), zones: zonesSchema,
@@ -117,6 +124,8 @@ export type Printing = {
 };
 export type PrintSettings = { paper: 'A4' | 'Letter'; cut: boolean; backs: boolean };
 export type ProxyAPI = {
+  getLocale(): Promise<Locale>;
+  setLocale(locale: Locale): Promise<void>;
   fonts(): Promise<string[]>;
   projects(): Promise<Array<Pick<Project, 'id' | 'name'>>>;
   open(id: string): Promise<Project>;
@@ -151,8 +160,8 @@ export function createCard(source: CardData, count = 1): Card {
   };
 }
 
-export function createProject(): Project {
-  return { id: crypto.randomUUID(), name: 'Mazzo senza titolo', version: 1, cards: [], presets: [] };
+export function createProject(name = 'Mazzo senza titolo'): Project {
+  return { id: crypto.randomUUID(), name, version: 1, cards: [], presets: [] };
 }
 
 export function assetURL(id: string): string {

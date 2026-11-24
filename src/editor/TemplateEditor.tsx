@@ -1,31 +1,32 @@
+import { errorMessage } from '../shared/i18n.js';
+import type { MessageKey } from '../shared/i18n.js';
+import { useI18n } from './i18n.js';
 import { useId, useMemo, useRef, useState } from 'react';
 import { assetURL, blankCard, createCard, frameColorNames, frameColors, isTemplate, maxDecorations, templateNames } from '../shared/model.js';
-import type { Card, FrameDecoration, FrameColor, Rect, Template, TemplateAppearance, Zones } from '../shared/model.js';
+import type { Card, FrameDecoration, FrameColor, Rect, Template, TemplateAppearance, TemplateEffect, Zones } from '../shared/model.js';
 import { newTemplate, templateAppearance } from '../shared/templates.js';
 import { FontPicker, ZoneFields, zoneLabels } from './Inspector.js';
 import { Icon } from './Icon.js';
 import { Preview } from './Preview.js';
 import { importDecoration } from './template-decorations.js';
+import { templateEffectLimits } from './template-effects.js';
 
 type AppearanceChange = (appearance: TemplateAppearance) => TemplateAppearance;
 type Section = 'appearance' | 'dividers' | 'decorations' | 'layout';
-const sections: { id: Section; label: string }[] = [
-  { id: 'appearance', label: 'Testo ed effetti' },
-  { id: 'dividers', label: 'Divisori' },
-  { id: 'decorations', label: 'Decorazioni' },
-  { id: 'layout', label: 'Zone' }
+const sections: { id: Section; label: MessageKey }[] = [
+  { id: 'appearance', label: 'textEffects' },
+  { id: 'dividers', label: 'dividers' },
+  { id: 'decorations', label: 'decorations' },
+  { id: 'layout', label: 'zones' }
 ];
-const example = createCard({
-  ...blankCard, name: 'Custode della soglia', type: 'Creatura — Spirito', power: '2', toughness: '3',
-  mana: '{2}{U}', rules: 'Volare\nQuando questa creatura entra, pesca una carta.'
-});
+const effectAnchors = { manual: 'manual', title: 'effectTitle', type: 'effectType', rules: 'effectRules' } as const;
 
-function Slider({ label, value, min = 0, max, unit, change }: {
-  label: string; value: number; min?: number; max: number; unit: string; change: (value: number) => void;
+function Slider({ label, value, min = 0, max, step = 1, unit, change }: {
+  label: string; value: number; min?: number; max: number; step?: number; unit: string; change: (value: number) => void;
 }) {
   return <label className="template-slider">
     <span>{label}</span><span className="template-slider-value" aria-hidden="true">{value}{unit}</span>
-    <input type="range" min={min} max={max} value={value} onChange={event => change(event.target.valueAsNumber)} />
+    <input type="range" min={min} max={max} step={step} value={value} onChange={event => change(event.target.valueAsNumber)} />
   </label>;
 }
 
@@ -40,6 +41,7 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
   activeCard?: Card; cards: Card[]; fonts: string[]; change: (update: AppearanceChange) => void;
   saving: boolean; saveError: string; retry: () => void;
 }) {
+  const { t, locale } = useI18n();
   const [section, setSection] = useState<Section>('appearance');
   const [zone, setZone] = useState<keyof Zones>();
   const [selectedLayer, setSelectedLayer] = useState('');
@@ -55,13 +57,17 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
   const decoration = decorations.find(item => item.id === selectedLayer);
   const previewSource = cards.find(card => card.id === previewId && card.source.editable);
   const sampleArt = activeCard?.art ?? activeCard?.source.images.art;
+  const example = useMemo(() => createCard({
+    ...blankCard, name: t('sampleName'), type: t('sampleType'), power: '2', toughness: '3',
+    rules: t('sampleRules')
+  }), [t]);
   const preview = useMemo<Card>(() => ({
     ...(previewSource ?? {
       ...example, art: sampleArt, source: { ...example.source, colors: sampleColor === 'C' ? [] : [sampleColor] },
       fields: { ...example.fields, mana: sampleColor === 'C' ? '{3}' : '{2}{' + sampleColor + '}' }
     }),
     frame: { kind: 'template', template, appearance }
-  }), [previewSource, sampleArt, sampleColor, template, appearance]);
+  }), [previewSource, sampleArt, sampleColor, template, appearance, example]);
   const count = cards.filter(card => card.source.editable && card.frame.kind === 'template' && card.frame.template === template).length;
 
   function patch(values: Partial<TemplateAppearance>) {
@@ -95,7 +101,7 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
       });
       setSelectedLayer(entry.id);
     } catch (error) {
-      setUploadError(error instanceof Error ? error.message : 'Impossibile importare la decorazione.');
+      setUploadError(error instanceof Error ? errorMessage(error, locale) : t('decorationImportFailed'));
     } finally {
       setUploading(false);
     }
@@ -110,28 +116,28 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
   const guide = section === 'decorations' ? decoration?.rect : undefined;
   return <div className="template-editor">
     <div className="template-editor-top">
-      <div className="template-switch" role="group" aria-label="Cornice del progetto">
+      <div className="template-switch" role="group" aria-label={t('projectFrame')}>
         {Object.keys(templateNames).filter(isTemplate).map(item =>
           <button key={item} aria-pressed={item === template} disabled={uploading} onClick={() => {
             setSelectedLayer(''); setZone(undefined); setUploadError(''); selectTemplate(item);
-          }}>{templateNames[item]}</button>)}
+          }}>{t(templateNames[item])}</button>)}
       </div>
       <p id={helpId} className="muted">
-        {count ? count + (count === 1 ? ' carta usa questa cornice.' : ' carte usano questa cornice.') : 'Nessuna carta usa ancora questa cornice.'}
-        {' '}Le modifiche si applicano subito alle carte che la usano, anche quelle future.
+        {count ? t(count === 1 ? 'frameCardsOne' : 'frameCards', { count }) : t('noFrameCards')}
+        {' '}{t('frameChangesHelp')}
       </p>
     </div>
 
     <div className="template-workspace" aria-describedby={helpId}>
-      <section className="template-preview" aria-label="Anteprima live">
+      <section className="template-preview" aria-label={t('livePreview')}>
         <div className="template-preview-options">
-          <label>Anteprima<select value={previewSource?.id ?? ''} onChange={event => setPreviewId(event.target.value)}>
-            <option value="">Carta di esempio</option>
+          <label>{t('preview')}<select value={previewSource?.id ?? ''} onChange={event => setPreviewId(event.target.value)}>
+            <option value="">{t('sampleCard')}</option>
             {cards.filter(card => card.source.editable).map(card =>
               <option key={card.id} value={card.id}>{card.fields.name}{card.source.set && ' · ' + card.source.set.toUpperCase()}</option>)}
           </select></label>
-          {!previewSource && <label>Colore di esempio<select value={sampleColor} onChange={event => setSampleColor(event.target.value as FrameColor)}>
-            {frameColors.map(color => <option key={color} value={color}>{frameColorNames[color]}</option>)}
+          {!previewSource && <label>{t('sampleColor')}<select value={sampleColor} onChange={event => setSampleColor(event.target.value as FrameColor)}>
+            {frameColors.map(color => <option key={color} value={color}>{t(frameColorNames[color])}</option>)}
           </select></label>}
         </div>
         <div className="template-preview-card">
@@ -140,50 +146,65 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
         </div>
       </section>
 
-      <section className="template-controls" aria-label="Personalizzazione">
-        <div className="template-sections" role="group" aria-label="Controlli cornice">
-          {sections.map(item => <button key={item.id} aria-pressed={section === item.id} onClick={() => setSection(item.id)}>{item.label}</button>)}
+      <section className="template-controls" aria-label={t('customization')}>
+        <div className="template-sections" role="group" aria-label={t('frameControls')}>
+          {sections.map(item => <button key={item.id} aria-pressed={section === item.id} onClick={() => setSection(item.id)}>{t(item.label)}</button>)}
         </div>
         <div className="template-controls-body">
           {section === 'appearance' && <>
             <fieldset className="template-settings">
-              <legend>Tipografia</legend>
+              <legend>{t('typography')}</legend>
               <FontPicker value={appearance.fontFamily ?? 'Georgia'} fonts={fonts} onChange={fontFamily => patch({ fontFamily })} />
               <label className="check"><input type="checkbox" checked={appearance.autoTextColor ?? false}
-                onChange={event => patch({ autoTextColor: event.target.checked })} />Colore del testo dalla carta</label>
-              {!appearance.autoTextColor && <ColorControl label="Colore del testo" value={appearance.textColor} change={textColor => patch({ textColor })} />}
+                onChange={event => patch({ autoTextColor: event.target.checked })} />{t('textColorFromCard')}</label>
+              {!appearance.autoTextColor && <ColorControl label={t('textColor')} value={appearance.textColor} change={textColor => patch({ textColor })} />}
             </fieldset>
             <fieldset className="template-settings">
-              <legend>Ombra e sfocatura</legend>
-              <ColorControl label="Colore dell’ombra" value={appearance.shadeColor ?? '#141820'} change={shadeColor => patch({ shadeColor })} />
-              <div className="template-control-grid">
-                <Slider label="Ombra del titolo" value={Math.round(appearance.titleShade * 100)} max={100} unit="%" change={value => patch({ titleShade: value / 100 })} />
-                <Slider label="Sfocatura del titolo" value={appearance.titleBlur ?? 0} max={32} unit=" px" change={titleBlur => patch({ titleBlur })} />
-                <Slider label="Ombra delle regole" value={Math.round(appearance.rulesShade * 100)} max={100} unit="%" change={value => patch({ rulesShade: value / 100 })} />
-                <Slider label="Sfocatura delle regole" value={appearance.rulesBlur ?? 0} max={32} unit=" px" change={rulesBlur => patch({ rulesBlur })} />
+              <legend>{t('shadeAndBlur')}</legend>
+              <ColorControl label={t('shadeColor')} value={appearance.shadeColor ?? '#141820'} change={shadeColor => patch({ shadeColor })} />
+              <div className="template-effect-grid">
+                {([
+                  ['topEffect', 'titleShade', 'titleBlur'],
+                  ['bottomEffect', 'rulesShade', 'rulesBlur']
+                ] as const).map(([effect, shade, blur]) => {
+                  const settings = appearance[effect];
+                  const anchor = settings?.anchor ?? 'manual';
+                  const { max, defaultHeight } = templateEffectLimits(template, effect);
+                  return <fieldset key={effect} className="template-settings">
+                    <legend>{t(effect)}</legend>
+                    <label>{t(`${effect}Anchor`)}<select value={anchor} onChange={event =>
+                      patch({ [effect]: { ...settings, anchor: event.target.value as TemplateEffect['anchor'] } })}>
+                      {Object.entries(effectAnchors).map(([value, name]) => <option key={value} value={value}>{t(name)}</option>)}
+                    </select></label>
+                    {anchor === 'manual' && <Slider label={t(`${effect}Height`)} value={Math.min(settings?.height ?? defaultHeight, max)}
+                      max={max} step={0.1} unit="%" change={height => patch({ [effect]: { anchor, height } })} />}
+                    <Slider label={t(`${effect}Shade`)} value={Math.round(appearance[shade] * 100)} max={100} unit="%" change={value => patch({ [shade]: value / 100 })} />
+                    <Slider label={t(`${effect}Blur`)} value={appearance[blur] ?? 0} max={32} unit=" px" change={value => patch({ [blur]: value })} />
+                  </fieldset>;
+                })}
               </div>
             </fieldset>
           </>}
 
           {section === 'dividers' && <fieldset className="template-settings">
-            <legend>Divisori</legend>
+            <legend>{t('dividers')}</legend>
             <label className="check"><input type="checkbox" checked={appearance.titleDivider ?? false}
-              onChange={event => patch({ titleDivider: event.target.checked })} />Sotto il titolo</label>
+              onChange={event => patch({ titleDivider: event.target.checked })} />{t('belowTitle')}</label>
             <label className="check"><input type="checkbox" checked={appearance.divider}
-              onChange={event => patch({ divider: event.target.checked })} />Sopra le regole</label>
+              onChange={event => patch({ divider: event.target.checked })} />{t('aboveRules')}</label>
             <label className="check"><input type="checkbox" checked={!appearance.accent}
-              onChange={event => patch({ accent: event.target.checked ? undefined : '#fff8ea' })} />Colore dei divisori dalla carta</label>
-            {appearance.accent && <ColorControl label="Colore dei divisori" value={appearance.accent} change={accent => patch({ accent })} />}
+              onChange={event => patch({ accent: event.target.checked ? undefined : '#fff8ea' })} />{t('dividerColorFromCard')}</label>
+            {appearance.accent && <ColorControl label={t('dividerColor')} value={appearance.accent} change={accent => patch({ accent })} />}
             <div className="template-control-grid">
-              <Slider label="Lunghezza dei divisori" value={appearance.dividerLength ?? 100} min={5} max={100} unit="%" change={dividerLength => patch({ dividerLength })} />
-              <Slider label="Spessore dei divisori" value={appearance.dividerWeight ?? 2} min={1} max={12} unit=" px" change={dividerWeight => patch({ dividerWeight })} />
-              <label>Allineamento<select value={appearance.dividerAlign ?? 'center'} onChange={event =>
+              <Slider label={t('dividerLength')} value={appearance.dividerLength ?? 100} min={5} max={100} unit="%" change={dividerLength => patch({ dividerLength })} />
+              <Slider label={t('dividerWeight')} value={appearance.dividerWeight ?? 2} min={1} max={12} unit=" px" change={dividerWeight => patch({ dividerWeight })} />
+              <label>{t('alignment')}<select value={appearance.dividerAlign ?? 'center'} onChange={event =>
                 patch({ dividerAlign: event.target.value as TemplateAppearance['dividerAlign'] })}>
-                <option value="left">Sinistra</option><option value="center">Centro</option><option value="right">Destra</option>
+                <option value="left">{t('left')}</option><option value="center">{t('center')}</option><option value="right">{t('right')}</option>
               </select></label>
-              <label>Tratto<select value={appearance.dividerStyle ?? 'solid'} onChange={event =>
+              <label>{t('stroke')}<select value={appearance.dividerStyle ?? 'solid'} onChange={event =>
                 patch({ dividerStyle: event.target.value as TemplateAppearance['dividerStyle'] })}>
-                <option value="solid">Continuo</option><option value="fade">Estremità sfumate</option><option value="dashed">Tratteggiato</option>
+                <option value="solid">{t('solid')}</option><option value="fade">{t('fadedEnds')}</option><option value="dashed">{t('dashed')}</option>
               </select></label>
             </div>
           </fieldset>}
@@ -204,59 +225,59 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
             }}>
               <button type="button" className={`image-dropzone icon-label${draggingDecoration ? ' dragging' : ''}`}
                 disabled={importDisabled} onClick={() => fileInput.current?.click()}>
-                <Icon name="import" /> Trascina un SVG o PNG qui, oppure scegli un file
+                <Icon name="import" /> {t('dropDecoration')}
               </button>
-              <input ref={fileInput} hidden type="file" aria-label="File decorazione" accept=".svg,.png,image/svg+xml,image/png" onChange={event => {
+              <input ref={fileInput} hidden type="file" aria-label={t('decorationFile')} accept=".svg,.png,image/svg+xml,image/png" onChange={event => {
                 const [file] = event.target.files ?? [];
                 event.target.value = '';
                 if (file) void upload(file);
               }} />
             </div>
-            {uploading && <p role="status" className="muted">Importazione decorazione…</p>}
+            {uploading && <p role="status" className="muted">{t('importingDecoration')}</p>}
             {uploadError && <p role="alert" className="error">{uploadError}</p>}
-            {decorations.length >= maxDecorations && <p className="muted">Puoi aggiungere fino a {maxDecorations} livelli.</p>}
+            {decorations.length >= maxDecorations && <p className="muted">{t('layerLimit', { limit: maxDecorations })}</p>}
             {appearance.overlay && <div className="template-overlay">
-              <img src={assetURL(appearance.overlay)} alt="" /><span>Overlay PNG del template</span>
-              <button className="icon-button" aria-label="Rimuovi overlay PNG" onClick={() => patch({ overlay: undefined })}><Icon name="remove" /></button>
+              <img src={assetURL(appearance.overlay)} alt="" /><span>{t('pngOverlay')}</span>
+              <button className="icon-button" aria-label={t('removePngOverlay')} onClick={() => patch({ overlay: undefined })}><Icon name="remove" /></button>
             </div>}
-            {!!decorations.length && <ol className="template-layer-list" aria-label="Livelli, dal fondo al primo piano">
+            {!!decorations.length && <ol className="template-layer-list" aria-label={t('layers')}>
               {decorations.map((item, index) => <li key={item.id}>
                 <button aria-pressed={item.id === selectedLayer} className="template-layer-name" onClick={() => setSelectedLayer(item.id)}>
                   <Icon name={item.source.kind === 'image' ? 'art' : 'layers'} size={16} /><span>{item.name}</span>
                 </button>
-                <button className="icon-button" aria-label={'Porta avanti ' + item.name} disabled={index === decorations.length - 1} onClick={() => shiftLayer(index, 1)}><Icon name="up" size={15} /></button>
-                <button className="icon-button" aria-label={'Porta indietro ' + item.name} disabled={index === 0} onClick={() => shiftLayer(index, -1)}><Icon name="down" size={15} /></button>
-                <button className="icon-button" aria-label={'Rimuovi ' + item.name} onClick={() => patch({ decorations: decorations.filter(layer => layer.id !== item.id) })}><Icon name="remove" size={15} /></button>
+                <button className="icon-button" aria-label={t('raiseLayer', { name: item.name })} disabled={index === decorations.length - 1} onClick={() => shiftLayer(index, 1)}><Icon name="up" size={15} /></button>
+                <button className="icon-button" aria-label={t('lowerLayer', { name: item.name })} disabled={index === 0} onClick={() => shiftLayer(index, -1)}><Icon name="down" size={15} /></button>
+                <button className="icon-button" aria-label={t('removeLayer', { name: item.name })} onClick={() => patch({ decorations: decorations.filter(layer => layer.id !== item.id) })}><Icon name="remove" size={15} /></button>
               </li>)}
             </ol>}
             {decoration && <fieldset className="template-settings">
-              <legend>Regola il livello</legend>
+              <legend>{t('editLayer')}</legend>
               <div className="template-control-grid">
-                <label>Colore decorazione<select value={decoration.tint} onChange={event => editDecoration({ tint: event.target.value as FrameDecoration['tint'] })}>
-                  <option value="original">Originale</option><option value="card">Colore della carta</option>
-                  <option value="text">Come il testo</option><option value="custom">Personalizzato</option>
+                <label>{t('decorationColor')}<select value={decoration.tint} onChange={event => editDecoration({ tint: event.target.value as FrameDecoration['tint'] })}>
+                  <option value="original">{t('original')}</option><option value="card">{t('cardColor')}</option>
+                  <option value="text">{t('sameAsText')}</option><option value="custom">{t('custom')}</option>
                 </select></label>
-                <label>Adattamento<select value={decoration.fit} onChange={event => editDecoration({ fit: event.target.value as FrameDecoration['fit'] })}>
-                  <option value="contain">Mantieni proporzioni</option><option value="stretch">Riempi la zona</option>
+                <label>{t('fit')}<select value={decoration.fit} onChange={event => editDecoration({ fit: event.target.value as FrameDecoration['fit'] })}>
+                  <option value="contain">{t('keepAspectRatio')}</option><option value="stretch">{t('fillArea')}</option>
                 </select></label>
               </div>
-              {decoration.tint === 'custom' && <ColorControl label="Tinta della decorazione" value={decoration.color} change={color => editDecoration({ color })} />}
-              <Slider label="Opacità della decorazione" value={Math.round(decoration.opacity * 100)} max={100} unit="%" change={value => editDecoration({ opacity: value / 100 })} />
+              {decoration.tint === 'custom' && <ColorControl label={t('decorationTint')} value={decoration.color} change={color => editDecoration({ color })} />}
+              <Slider label={t('decorationOpacity')} value={Math.round(decoration.opacity * 100)} max={100} unit="%" change={value => editDecoration({ opacity: value / 100 })} />
               <ZoneFields rect={decoration.rect} update={rect => editDecoration({ rect })} />
-              <p className="muted">Trascina la guida o il suo angolo per spostare o ridimensionare il livello.</p>
+              <p className="muted">{t('moveLayerHelp')}</p>
             </fieldset>}
           </>}
 
           {section === 'layout' && <fieldset className="template-settings">
-            <legend>Posizione e dimensioni</legend>
-            <label>Zona da modificare<select value={zone ?? ''} onChange={event =>
+            <legend>{t('positionSize')}</legend>
+            <label>{t('zoneToEdit')}<select value={zone ?? ''} onChange={event =>
               setZone((event.target.value || undefined) as keyof Zones | undefined)}>
-              <option value="">Seleziona una zona</option>
-              {Object.entries(zoneLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+              <option value="">{t('selectZone')}</option>
+              {Object.entries(zoneLabels).map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}
             </select></label>
             {zone && <>
               <ZoneFields rect={appearance.zones[zone]} update={updateZone} />
-              <p className="muted">Trascina la guida o il suo angolo. Le misure sono in percentuale.</p>
+              <p className="muted">{t('resizeZoneHelp')}</p>
             </>}
           </fieldset>}
         </div>
@@ -264,12 +285,12 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
     </div>
 
     <div className="template-editor-footer">
-      <span className={saveError ? 'error' : 'muted'} role="status">{saveError || (saving ? 'Salvataggio…' : 'Salvataggio automatico')}</span>
-      {saveError && <button onClick={retry}>Riprova</button>}
+      <span className={saveError ? 'error' : 'muted'} role="status">{saveError || (saving ? t('saving') : t('autosave'))}</span>
+      {saveError && <button onClick={retry}>{t('retry')}</button>}
       <button className="icon-label" disabled={uploading} onClick={() => {
         change(() => templateAppearance(newTemplate(template)));
         setZone(undefined); setSelectedLayer(''); setUploadError('');
-      }}><Icon name="reset" size={16} /> Ripristina cornice</button>
+      }}><Icon name="reset" size={16} />{' '}{t('resetFrame')}</button>
     </div>
   </div>;
 }

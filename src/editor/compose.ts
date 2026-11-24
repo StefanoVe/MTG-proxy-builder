@@ -1,3 +1,5 @@
+import { LocalizedError } from '../shared/i18n.js';
+import type { MessageKey } from '../shared/i18n.js';
 import { cardZones } from './card-zones.js';
 import { blendColorFrames } from './color-frames.js';
 import { colorFrameLayers } from '../shared/frame-colors.js';
@@ -31,7 +33,7 @@ function loadImage(id: string) {
   image.src = assetURL(id);
   const loaded = image.decode().then(() => image).catch(() => {
     imageCache.delete(id);
-    throw new Error('Una delle immagini salvate è illeggibile o mancante.');
+    throw new LocalizedError('assetUnavailable');
   });
   imageCache.set(id, loaded);
   return loaded;
@@ -201,7 +203,7 @@ function framedPrinting(ctx: CanvasRenderingContext2D, scan: HTMLImageElement, a
   ctx.restore();
 }
 
-export async function compose(canvas: HTMLCanvasElement, card: Card, back = false) {
+export async function compose(canvas: HTMLCanvasElement, card: Card, back = false): Promise<{ warning?: MessageKey }> {
   const artId = card.art ?? card.source.images.art;
   const template = card.frame.kind === 'template' ? card.frame.template : undefined;
   const appearance = card.frame.kind === 'template' ? { ...templateAppearance(card.frame), ...card.dividerOverrides, zones: cardZones(card) } : undefined;
@@ -235,12 +237,12 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
         return {};
       }
       ctx.drawImage(printed, 0, 0, width, height);
-      return { warning: 'Regola l’area dell’illustrazione oppure scegli una cornice PNG.' };
+      return { warning: 'adjustArtOrFrame' };
     }
     ctx.drawImage(printed, 0, 0, width, height);
     return {};
   }
-  if (back || actualPrinting) throw new Error('Scansione dell’edizione non disponibile. I dati della carta sono nel pannello a destra.');
+  if (back || actualPrinting) throw new LocalizedError('missingScanHelp');
   const overlay = colorFrames && colorFrames.length > 1 ? blendColorFrames(colorFrames, width, height) : colorFrames?.[0] ?? sourceOverlay;
   const zones = cardZones(card);
   const [ink, paper] = colors[toneOf(card)];
@@ -291,6 +293,6 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   } else {
     fitLine(ctx, card.fields.artist, { x: 26, y: height - 33, w: width - 52, h: 29 }, 20, font, textColor);
   }
-  if ((template || set) && !art) return { warning: 'Importa un’illustrazione per questa cornice.' };
-  return result && (mana.length === 0 || diameter >= 7) ? {} : { warning: 'Il testo supera lo spazio disponibile.' };
+  if ((template || set) && !art) return { warning: 'addArtHelp' };
+  return result && (mana.length === 0 || diameter >= 7) ? {} : { warning: 'textOverflow' };
 }

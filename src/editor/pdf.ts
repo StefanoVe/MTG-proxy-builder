@@ -1,11 +1,13 @@
 import { PDFDocument, rgb } from 'pdf-lib';
 import type { PDFImage } from 'pdf-lib';
+import { translate } from '../shared/i18n.js';
+import type { Locale } from '../shared/i18n.js';
 import type { PrintSettings } from '../shared/model.js';
 import { cardHeight, cardWidth, cutSegments, mmToPt, papers } from '../shared/print.js';
 import type { Sheet, Slot } from '../shared/print.js';
 import { compose } from './compose.js';
 
-export async function createPdf(sheets: Sheet[], settings: PrintSettings, name: string, progress: (page: number) => void) {
+export async function createPdf(sheets: Sheet[], settings: PrintSettings, name: string, progress: (page: number) => void, locale: Locale = 'it') {
   const doc = await PDFDocument.create();
   doc.setTitle(name);
   doc.setCreator('MTG Proxy Builder');
@@ -17,7 +19,7 @@ export async function createPdf(sheets: Sheet[], settings: PrintSettings, name: 
     const existing = rendered.get(key);
     if (existing) return existing;
     const { warning } = await compose(canvas, card, back);
-    if (warning) throw new Error(`${card.fields.name} · ${warning}`);
+    if (warning) throw new Error(`${card.fields.name} · ${translate(locale, warning)}`);
     const jpg = canvas.toDataURL('image/jpeg', 0.94);
     const image = await doc.embedJpg(jpg);
     rendered.set(key, image);

@@ -1,7 +1,11 @@
+import { errorMessage, locales, LocalizedError, resolveLocale, translate } from '../shared/i18n.js';
+import type { Locale } from '../shared/i18n.js';
 import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron';
 import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron';
 import { execFile } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -15,6 +19,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'proxy-asset', privileges: { sta
 const rendererPath = fileURLToPath(new URL('../../dist/index.html', import.meta.url));
 const rendererURL = pathToFileURL(rendererPath).href;
 let window: BrowserWindow | null = null;
+let locale: Locale = 'en';
 let pendingSave = Promise.resolve();
 let writing = 0;
 const idSchema = z.uuid();
@@ -38,11 +43,16 @@ async function listSystemFonts(): Promise<string[]> {
 }
 
 function handle<T extends unknown[], R>(channel: string, schema: z.ZodType<T>, run: (...args: T) => R) {
-  ipcMain.handle(channel, (event: IpcMainInvokeEvent, ...args: unknown[]) => {
+  ipcMain.handle(channel, async (event: IpcMainInvokeEvent, ...args: unknown[]) => {
     if (event.sender !== window?.webContents || event.senderFrame?.url !== rendererURL || event.senderFrame.parent) {
-      throw new Error('Richiesta non autorizzata.');
+      throw new Error(translate(locale, 'unauthorizedRequest'));
     }
-    return run(...schema.parse(args));
+    try {
+      return await run(...schema.parse(args));
+    } catch (error) {
+      if (error instanceof LocalizedError) throw new Error(errorMessage(error, locale));
+      throw error;
+    }
   });
 }
 
@@ -52,6 +62,8 @@ async function choose(options: OpenDialogOptions) {
   return result.canceled ? [] : result.filePaths;
 }
 
+handle('locale:get', z.tuple([]), () => locale);
+handle('locale:set', z.tuple([z.enum(locales)]), next => { locale = next; });
 handle('projects:list', z.tuple([]), listProjects);
 handle('fonts:list', z.tuple([]), listSystemFonts);
 handle('projects:open', z.tuple([idSchema]), getProject);
@@ -63,33 +75,33 @@ handle('projects:save', z.tuple([projectSchema]), project => {
 });
 handle('catalog:search', z.tuple([z.string().trim().min(1).max(300)]), search);
 handle('catalog:printings', z.tuple([idSchema]), printings);
-handle('catalog:card', z.tuple([idSchema, z.boolean()]), getCard);
+handle('catalog:card', z.tuple([idSchema, z.boolean()]), (id, images) => getCard(id, images, locale));
 handle('catalog:resolve', z.tuple([z.array(z.object({
   name: z.string().min(1).max(300), count: z.number().int().min(1).max(999),
   set: z.string().regex(/^[a-z0-9]+$/).max(20).optional(), number: z.string().min(1).max(40).optional()
 })).max(1500)]), resolveDeck);
 
 handle('files:deck', z.tuple([]), async () => {
-  const [path] = await choose({ properties: ['openFile'], filters: [{ name: 'Lista di carte', extensions: ['txt', 'dec', 'deck'] }] });
+  const [path] = await choose({ properties: ['openFile'], filters: [{ name: translate(locale, 'deckFile'), extensions: ['txt', 'dec', 'deck'] }] });
   return path ? (await readLimitedFile(path, 512_000)).toString('utf8') : null;
 });
 handle('files:images', z.tuple([z.enum(['files', 'folder', 'single']), z.boolean()]), async (mode, frame) => {
   const extensions = frame ? ['png'] : imageExtensions;
   const paths = await choose(mode !== 'folder' ? {
-    properties: mode === 'single' ? ['openFile'] : ['openFile', 'multiSelections'], filters: [{ name: 'Immagini', extensions }]
+    properties: mode === 'single' ? ['openFile'] : ['openFile', 'multiSelections'], filters: [{ name: translate(locale, 'images'), extensions }]
   } : { properties: ['openDirectory'] });
   const folder = paths[0];
   const files = mode === 'folder' && folder ? (await readdir(folder, { withFileTypes: true }))
     .filter(entry => entry.isFile() && extensions.includes(entry.name.split('.').pop()?.toLowerCase() ?? ''))
     .map(entry => join(folder, entry.name)).sort() : paths;
-  if (files.length > 1500) throw new Error('Seleziona al massimo 1500 immagini per volta.');
+  if (files.length > 1500) throw new LocalizedError('imageSelectionLimit');
   const assets = [];
   const errors = [];
   for (const path of files) {
     try {
       assets.push(await storeImage(await readLimitedFile(path, imageLimit), basename(path), frame));
     } catch (error) {
-      errors.push(`${basename(path)} · ${error instanceof Error ? error.message : 'File illeggibile'}`);
+      errors.push(`${basename(path)} · ${error instanceof Error ? errorMessage(error, locale) : translate(locale, 'unreadableFile')}`);
     }
   }
   return { assets, errors };
@@ -98,11 +110,11 @@ const bytes = z.instanceof(Uint8Array);
 handle('files:dropped', z.tuple([bytes, z.string().max(255), z.boolean()]), storeImage);
 handle('files:pdf', z.tuple([z.string().max(100), bytes]), async (name, data) => {
   if (!window || data.length > 256 * 1024 * 1024 || Buffer.from(data.subarray(0, 5)).toString() !== '%PDF-') {
-    throw new Error('Il PDF non è valido o supera 256 MB.');
+    throw new LocalizedError('invalidPdf');
   }
   const result = await dialog.showSaveDialog(window, {
     defaultPath: name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').trim() + '.pdf',
-    filters: [{ name: 'Documento PDF', extensions: ['pdf'] }]
+    filters: [{ name: translate(locale, 'pdfFile'), extensions: ['pdf'] }]
   });
   if (result.canceled || !result.filePath) return false;
   await atomicWrite(result.filePath, data);
@@ -111,12 +123,12 @@ handle('files:pdf', z.tuple([z.string().max(100), bytes]), async (name, data) =>
 
 handle('files:card-archive', z.tuple([z.string().max(100), bytes]), async (name, data) => {
   if (!window || data.length > cardArchiveMaxBytes || data.length < 22 || data[0] !== 80 || data[1] !== 75 || data[2] !== 3 || data[3] !== 4) {
-    throw new Error('Lo ZIP non è valido o supera 256 MB.');
+    throw new LocalizedError('invalidZip');
   }
   const filename = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').trim();
   const result = await dialog.showSaveDialog(window, {
-    defaultPath: (filename || 'Carte') + '-carte.zip',
-    filters: [{ name: 'Archivio ZIP', extensions: ['zip'] }]
+    defaultPath: translate(locale, 'archiveFilename', { name: filename || translate(locale, 'archiveDefaultName') }),
+    filters: [{ name: translate(locale, 'zipFile'), extensions: ['zip'] }]
   });
   if (result.canceled || !result.filePath) return false;
   await atomicWrite(result.filePath, data);
@@ -145,7 +157,24 @@ function createWindow() {
   void editor.loadFile(rendererPath);
 }
 
-if (!app.requestSingleInstanceLock()) {
+if (process.argv.includes('--mcp')) {
+  const sessionDir = mkdtempSync(join(tmpdir(), 'mtg-proxy-builder-mcp-'));
+  app.setPath('sessionData', sessionDir);
+  // Closing a hidden export window must leave the stdio server running.
+  app.on('window-all-closed', () => {});
+  app.on('quit', () => {
+    try { rmSync(sessionDir, { recursive: true, force: true }); } catch { /* Chromium may still hold files open. */ }
+  });
+  void app.whenReady().then(async () => {
+    app.dock?.hide();
+    protocol.handle('proxy-asset', imageResponse);
+    const { startMcp } = await import('./mcp.js');
+    startMcp();
+  }).catch(error => {
+    console.error(error);
+    app.exit(1);
+  });
+} else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => {
@@ -154,6 +183,7 @@ if (!app.requestSingleInstanceLock()) {
   });
   void app.whenReady().then(() => {
     protocol.handle('proxy-asset', imageResponse);
+    locale = resolveLocale(app.getPreferredSystemLanguages());
     createWindow();
     app.on('activate', () => { if (!window) createWindow(); });
   });

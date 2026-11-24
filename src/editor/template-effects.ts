@@ -8,26 +8,51 @@ export function templateBox(zone: Rect): Rect {
 }
 
 const regions = {
-  title: { panel: { x: 5, y: 4, w: 90, h: 7.4 }, radius: 9, stops: [[0, 1], [.15, 0]] },
-  rules: { panel: { x: 5, y: 61.8, w: 90, h: 34 }, radius: 10, stops: [[0, 0], [.52, 0], [.69, .92], [1, 1]] }
-} satisfies Record<string, { panel: Rect; radius: number; stops: [number, number][] }>;
+  topEffect: { panel: { x: 5, y: 4, w: 90, h: 7.4 }, radius: 9, fullArtHeight: 15 },
+  bottomEffect: { panel: { x: 5, y: 61.8, w: 90, h: 34 }, radius: 10, fullArtHeight: 48 }
+};
 
-function wash(ctx: CanvasRenderingContext2D, template: Template, part: keyof typeof regions, color: string, strength: number) {
-  if (!strength) return;
-  const { panel, radius, stops } = regions[part];
+type Effect = keyof typeof regions;
+
+export function templateEffectLimits(template: Template, effect: Effect) {
+  const { panel, fullArtHeight } = regions[effect];
+  if (template === 'full-art') return { edge: effect === 'topEffect' ? 0 : 100, max: 100, defaultHeight: fullArtHeight };
+  return effect === 'topEffect'
+    ? { edge: panel.y, max: 100 - panel.y, defaultHeight: panel.h }
+    : { edge: panel.y + panel.h, max: panel.y + panel.h, defaultHeight: panel.h };
+}
+
+function wash(ctx: CanvasRenderingContext2D, template: Template, appearance: TemplateAppearance,
+  effect: Effect, color: string, strength: number) {
+  if (!strength) return false;
+  const { panel, radius } = regions[effect];
+  const { edge, max, defaultHeight } = templateEffectLimits(template, effect);
+  const top = effect === 'topEffect';
+  const settings = appearance[effect];
+  let extent = settings?.height ?? defaultHeight;
+  if (settings && settings.anchor !== 'manual') {
+    const zone = appearance.zones[settings.anchor];
+    extent = top ? zone.y + zone.h - edge : edge - zone.y;
+  }
+  extent = Math.min(max, extent);
+  if (extent <= 0) return false;
+  const y = top ? edge : edge - extent;
   const tinted = (opacity: number) => color + Math.round(opacity * strength * 255).toString(16).padStart(2, '0');
   if (template === 'full-art') {
-    const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    for (const [offset, opacity] of stops) gradient.addColorStop(offset, tinted(opacity));
+    const gradient = ctx.createLinearGradient(0, y * height / 100, 0, (y + extent) * height / 100);
+    gradient.addColorStop(0, tinted(top ? 1 : 0));
+    if (!top) gradient.addColorStop(17 / 48, tinted(.92));
+    gradient.addColorStop(1, tinted(top ? 0 : 1));
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, y * height / 100, width, extent * height / 100);
   } else {
-    const { x, y, w, h } = templateBox(panel);
+    const rect = templateBox({ ...panel, y, h: extent });
     ctx.beginPath();
-    ctx.roundRect(x, y, w, h, radius);
+    ctx.roundRect(rect.x, rect.y, rect.w, rect.h, radius);
     ctx.fillStyle = tinted(1);
     ctx.fill();
   }
+  return true;
 }
 
 export function blurTemplateArt(ctx: CanvasRenderingContext2D, template: Template, appearance: TemplateAppearance) {
@@ -48,23 +73,23 @@ export function blurTemplateArt(ctx: CanvasRenderingContext2D, template: Templat
       source.drawImage(ctx.canvas, x, y, w, h, left, top, targetWidth, targetHeight);
     }
   }
-  for (const [part, strength] of [['title', appearance.titleBlur], ['rules', appearance.rulesBlur]] as const) {
+  for (const [effect, strength] of [['topEffect', appearance.titleBlur], ['bottomEffect', appearance.rulesBlur]] as const) {
     if (!strength) continue;
     layer.clearRect(0, 0, width, height);
     layer.filter = 'blur(' + strength + 'px)';
     layer.drawImage(padded, -padding, -padding);
     layer.filter = 'none';
     layer.globalCompositeOperation = 'destination-in';
-    wash(layer, template, part, '#ffffff', 1);
+    const masked = wash(layer, template, appearance, effect, '#ffffff', 1);
     layer.globalCompositeOperation = 'source-over';
-    ctx.drawImage(buffer, 0, 0);
+    if (masked) ctx.drawImage(buffer, 0, 0);
   }
 }
 
 export function shadeTemplate(ctx: CanvasRenderingContext2D, template: Template, appearance: TemplateAppearance) {
   const color = appearance.shadeColor ?? '#141820';
-  wash(ctx, template, 'title', color, appearance.titleShade);
-  wash(ctx, template, 'rules', color, appearance.rulesShade);
+  wash(ctx, template, appearance, 'topEffect', color, appearance.titleShade);
+  wash(ctx, template, appearance, 'bottomEffect', color, appearance.rulesShade);
 }
 
 export function drawTemplateDividers(ctx: CanvasRenderingContext2D, appearance: TemplateAppearance, cardColor: string) {

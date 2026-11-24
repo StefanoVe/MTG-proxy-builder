@@ -46,6 +46,9 @@ jobs:
       - run: npm run test:desktop
         env:
           MTG_SMOKE_EXECUTABLE: ${{ matrix.executable }}
+      - run: npm run test:mcp
+        env:
+          MTG_SMOKE_EXECUTABLE: ${{ matrix.executable }}
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}

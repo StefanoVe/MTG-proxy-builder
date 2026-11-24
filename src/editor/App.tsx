@@ -1,9 +1,13 @@
+import type { Locale, MessageKey } from '../shared/i18n.js';
+import { errorMessage, LocalizedError } from '../shared/i18n.js';
+import { useI18n } from './i18n.js';
 import { templateAppearance, withProjectTemplate } from '../shared/templates.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { blankCard, createCard, createProject, defaultCrop } from '../shared/model.js';
 import type { Card, DeckEntry, FrameSet, Printing, Project, Rect, Template, TemplateAppearance, Zones } from '../shared/model.js';
-import { parseDeck } from '../shared/deck.js';
+import { parseDeckRows } from '../shared/deck.js';
+import { loadDeckCards } from '../shared/deck-import.js';
 import { FrameSets } from './FrameSets.js';
 import { FrameGallery } from './FrameGallery.js';
 import { Batch } from './Batch.js';
@@ -18,37 +22,25 @@ import { TemplateEditor } from './TemplateEditor.js';
 type Panel = 'deck' | 'batch' | 'print' | 'sheet' | 'cards' | 'printings' | 'frames' | 'frame-sets' | 'templates';
 const usesArt = (card: Card) => card.frame.kind === 'template' || card.frame.kind === 'color-set';
 const imageKey = (card: Card) => `${card.id}/${card.source.printingId}/${usesArt(card) ? 'art' : 'scan'}`;
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': Error: /, '');
-
-async function inParallel<T, R>(items: T[], work: (item: T, index: number) => Promise<R>) {
-  let next = 0;
-  const result: R[] = [];
-  await Promise.all(Array.from({ length: Math.min(4, items.length) }, async () => {
-    while (next < items.length) {
-      const index = next++;
-      result[index] = await work(items[index], index);
-    }
-  }));
-  return result;
-}
 
 function Dialog({ title, children, close, busy, wide, back }: {
   title: string; children: ReactNode; close: () => void; busy: boolean; wide?: boolean; back?: () => void;
 }) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { ref.current?.showModal(); }, []);
   useEffect(() => { heading.current?.focus(); }, [title]);
   return <dialog ref={ref} className={wide ? "dialog dialog-wide" : "dialog"} onCancel={event => { event.preventDefault(); if (!busy) close(); }} aria-labelledby="dialog-title">
     <header><div className="dialog-heading">
-      {back && <button className="icon-button" aria-label="Torna alle opzioni di stampa" title="Torna alle opzioni di stampa" onClick={back} disabled={busy}><Icon name="undo" /></button>}
+      {back && <button className="icon-button" aria-label={t('backToPrint')} title={t('backToPrint')} onClick={back} disabled={busy}><Icon name="undo" /></button>}
       <h2 id="dialog-title" ref={heading} tabIndex={-1}>{title}</h2>
-    </div><button className="icon-button" aria-label="Chiudi" title="Chiudi" onClick={close} disabled={busy}><Icon name="close" /></button></header>
+    </div><button className="icon-button" aria-label={t('close')} title={t('close')} onClick={close} disabled={busy}><Icon name="close" /></button></header>
     <div className="dialog-body">{children}</div>
   </dialog>;
 }
 
-const titles: Record<Panel, string> = { deck: 'Importa lista', batch: 'Modifica in blocco', print: 'Stampa', sheet: 'Esporta PDF', cards: 'Carte singole', printings: 'Scegli edizione', frames: 'Scegli cornice', 'frame-sets': 'Set di cornici', templates: 'Editor cornici del progetto' };
+const titles: Record<Panel, MessageKey> = { deck: 'importList', batch: 'batchEdit', print: 'print', sheet: 'exportPdf', cards: 'individualCards', printings: 'chooseEdition', frames: 'chooseFrame', 'frame-sets': 'frameSets', templates: 'projectFrameEditor' };
 
 function projectTemplate(project: Project, template: Template, active?: Card) {
   const frame = active?.frame;
@@ -63,6 +55,7 @@ function projectTemplate(project: Project, template: Template, active?: Card) {
 }
 
 export function App() {
+  const { t, locale, setLocale } = useI18n();
   const searchRef = useRef<HTMLInputElement>(null);
   const [project, setProject] = useState<Project | null>(null);
   const live = useRef<Project | null>(null);
@@ -77,11 +70,11 @@ export function App() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<{ key: MessageKey; count?: number }>();
   const [busy, setBusy] = useState(false);
   const [draggingImage, setDraggingImage] = useState(false);
   const [query, setQuery] = useState('');
-  const [searchFeedback, setSearchFeedback] = useState('');
+  const [searchFeedback, setSearchFeedback] = useState<Error>();
   const [searching, setSearching] = useState(false);
   const [imageLoads, setImageLoads] = useState<Set<string>>(new Set());
   const attemptedImages = useRef(new Set<string>());
@@ -106,21 +99,29 @@ export function App() {
     setHistory([]);
     lastHistory.current = 0;
     setChoices([]);
-    setSearchFeedback('');
+    setSearchFeedback(undefined);
     setZone(undefined);
     setBack(false);
     setSaveError('');
-    setNotice('');
+    setNotice(undefined);
     localStorage.setItem('active-project', value.id);
   }
   useEffect(() => {
     void window.proxy.projects().then(async list => {
       setProjects(list);
       const last = list.find(item => item.id === localStorage.getItem('active-project')) ?? list[0];
-      showProject(last ? await window.proxy.open(last.id) : createProject());
-    }).catch(cause => { showProject(createProject()); setError(message(cause)); });
+      showProject(last ? await window.proxy.open(last.id) : createProject(t('untitledDeck')));
+    }).catch(cause => { showProject(createProject(t('untitledDeck'))); setError(errorMessage(cause, locale)); });
   }, []);
   useEffect(() => { void window.proxy.fonts().then(setSystemFonts).catch(() => {}); }, []);
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      void window.proxy.projects().then(list => { if (active) setProjects(list); }).catch(() => {});
+    };
+    window.addEventListener('focus', refresh);
+    return () => { active = false; window.removeEventListener('focus', refresh); };
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -148,7 +149,7 @@ export function App() {
       setProjects(list => [...list.filter(item => item.id !== next.id), { id: next.id, name: next.name }]
         .sort((a, b) => a.name.localeCompare(b.name, 'it')));
     }).catch(cause => {
-      if (current === revision.current) setSaveError(message(cause));
+      if (current === revision.current) setSaveError(errorMessage(cause, locale));
     }).finally(() => { if (current === revision.current) setSaving(false); });
   }
 
@@ -173,7 +174,7 @@ export function App() {
     setSelected(new Set());
     setZone(undefined);
     setBack(false);
-    setNotice('Modifica annullata');
+    setNotice({ key: 'undoDone' });
     persist(last);
   }
 
@@ -189,17 +190,17 @@ export function App() {
 
   function addCards(additions: Card[]) {
     if (!additions.length) return;
-    if ((live.current?.cards.length ?? 0) + additions.length > 1500) throw new Error('Il progetto può contenere al massimo 1500 righe.');
+    if ((live.current?.cards.length ?? 0) + additions.length > 1500) throw new LocalizedError('projectLimit');
     commit(value => ({ ...value, cards: [...value.cards, ...additions] }));
     activate(additions[0].id);
   }
 
   async function action(run: () => Promise<void>) {
     setError('');
-    setNotice('');
+    setNotice(undefined);
     setBusy(true);
     try { await run(); }
-    catch (cause) { setError(message(cause)); }
+    catch (cause) { setError(errorMessage(cause, locale)); }
     finally { setBusy(false); }
   }
 
@@ -211,7 +212,7 @@ export function App() {
     try {
       images = (await window.proxy.card(card.source.printingId)).images;
     } catch (cause) {
-      images = { error: message(cause).slice(0, 300) };
+      images = { error: errorMessage(cause, locale).slice(0, 300) };
     } finally {
       setImageLoads(loads => {
         const next = new Set(loads);
@@ -242,7 +243,7 @@ export function App() {
 
   async function lookup(printing?: Printing) {
     if (busy || (!printing && !query.trim())) return;
-    setSearchFeedback('');
+    setSearchFeedback(undefined);
     setSearching(true);
     await action(async () => {
       try {
@@ -254,10 +255,10 @@ export function App() {
           setChoices([]);
         } else {
           setChoices(result.choices);
-          if (!result.choices.length) setSearchFeedback('Nessuna carta trovata. Prova il nome inglese o una parte del nome.');
+          if (!result.choices.length) setSearchFeedback(new LocalizedError('noCardsFound'));
         }
       } catch (cause) {
-        setSearchFeedback(message(cause));
+        setSearchFeedback(cause instanceof Error ? cause : new Error(String(cause)));
       }
     });
     setSearching(false);
@@ -302,7 +303,7 @@ export function App() {
       if (errors.length) setError(errors.join('\n'));
       return assets[0];
     } catch (cause) {
-      setError(message(cause));
+      setError(errorMessage(cause, locale));
       return undefined;
     }
   }
@@ -353,41 +354,31 @@ export function App() {
   }
 
   function importDeck() {
-    const parsed = parseDeck(deckText);
-    const names = parsed.entries;
-    setDeckErrors(parsed.errors);
+    const { entries: names, invalidLines } = parseDeckRows(deckText);
+    const errors = invalidLines.map(line => t('invalidDeckLine', line));
+    setDeckErrors(errors);
     if (!names.length) return;
     if ((project?.cards.length ?? 0) + names.length > 1500) {
-      setDeckErrors([...parsed.errors, 'Il progetto può contenere al massimo 1500 righe.']);
+      setDeckErrors([...errors, t('projectLimit')]);
       return;
     }
     void action(async () => {
-      setDeckProgress('Ricerca delle carte…');
+      setDeckProgress(t('findingCards'));
       try {
         const matches = await window.proxy.resolve(names);
-        let complete = 0;
-        const resolved = await inParallel(matches, async (match, index) => {
-          const item = names[index];
-          try {
-            if (!match) return { item, error: `Carta o edizione non trovata · ${item.name}` };
-            return { item, card: createCard(await window.proxy.card(match.id), item.count) };
-          } catch (cause) {
-            return { item, error: `${item.name} · ${message(cause)}` };
-          } finally {
-            setDeckProgress(`Carte elaborate ${++complete} / ${names.length}`);
-          }
-        });
+        const resolved = await loadDeckCards(names, matches, id => window.proxy.card(id),
+          complete => setDeckProgress(t('cardsProcessed', { done: complete, total: names.length })), locale);
         const additions = resolved.flatMap(item => item.card ? [item.card] : []);
         const failed = resolved.filter(item => item.error);
         addCards(additions);
-        if (!failed.length && !parsed.errors.length) { setDeckText(''); setPanel(undefined); }
+        if (!failed.length && !invalidLines.length) { setDeckText(''); setPanel(undefined); }
         else {
           const entryText = ({ count, name, set, number }: DeckEntry) => `${count} ${name}${set ? ` (${set.toUpperCase()}) ${number}` : ''}`;
-          const invalid = parsed.errors.map(line => line.replace(/^Riga \d+ · /, ''));
+          const invalid = invalidLines.map(({ line }) => line);
           setDeckText([...failed.map(({ item }) => entryText(item)), ...invalid].join('\n'));
-          setDeckErrors([...parsed.errors, ...failed.flatMap(({ error }) => error ? [error] : [])]);
+          setDeckErrors([...errors, ...failed.flatMap(({ error }) => error ? [error] : [])]);
         }
-        if (additions.length) setNotice(`Importate ${additions.length} carte`);
+        if (additions.length) setNotice({ key: additions.length === 1 ? 'cardsImportedOne' : 'cardsImported', count: additions.length });
       } finally {
         setDeckProgress('');
       }
@@ -402,21 +393,21 @@ export function App() {
     });
   }
 
-  if (!project) return <div className="initial" role="status">Apertura di MTG Proxy Builder…</div>;
+  if (!project) return <div className="initial" role="status">{t('openingApp')}</div>;
   const total = project.cards.reduce((sum, item) => sum + item.count, 0);
   const selection = project.cards.filter(item => selected.has(item.id));
   const batchCards = selection.length ? selection : project.cards;
   const loadingImage = !!card && imageLoads.has(imageKey(card));
   const catalogSearch = <div className="catalog-search">
     <form className="search" role="search" onSubmit={event => { event.preventDefault(); void lookup(); }}>
-      <input ref={searchRef} type="search" aria-label="Nome della carta da cercare" placeholder="Es. Lightning Bolt" maxLength={300} value={query}
+      <input ref={searchRef} type="search" aria-label={t('cardSearchName')} placeholder={t('cardSearchExample')} maxLength={300} value={query}
         autoFocus={!card} disabled={searching} onChange={event => {
-          setQuery(event.target.value); setSearchFeedback(''); setChoices([]);
+          setQuery(event.target.value); setSearchFeedback(undefined); setChoices([]);
         }} />
-      <button className={`icon-button${card ? '' : ' primary'}`} aria-label={searching ? 'Ricerca in corso' : 'Cerca carta'} title="Cerca carta · / " disabled={!query.trim() || busy}><Icon name="search" /></button>
+      <button className={`icon-button${card ? '' : ' primary'}`} aria-label={searching ? t('searching') : t('searchCard')} title={t('searchShortcut')} disabled={!query.trim() || busy}><Icon name="search" /></button>
     </form>
-    {searchFeedback && <p className="search-feedback" role="status">{searchFeedback}</p>}
-    {choices.length > 0 && <div className="results" aria-label="Carte trovate">
+    {searchFeedback && <p className="search-feedback" role="status">{errorMessage(searchFeedback, locale)}</p>}
+    {choices.length > 0 && <div className="results" aria-label={t('searchResults')}>
       {choices.map(printing => <button key={printing.id} disabled={busy} onClick={() => void lookup(printing)}>
         <strong>{printing.name}</strong><small>{printing.setName}</small>
       </button>)}
@@ -427,49 +418,54 @@ export function App() {
     <header className="toolbar">
       <div className="brand"><i aria-hidden="true" /><span>MTG Proxy Builder</span></div>
       <div className="project-tools">
-        <select aria-label="Apri progetto" disabled={busy || saving} value={project.id} onChange={event => {
+        <select aria-label={t('openProject')} disabled={busy || saving} value={project.id} onChange={event => {
           const id = event.target.value;
-          if (id === 'new') { const next = createProject(); showProject(next); persist(next); return; }
+          if (id === 'new') { const next = createProject(t('untitledDeck')); showProject(next); persist(next); return; }
           void action(async () => { showProject(await window.proxy.open(id)); });
         }}>
           {!projects.some(item => item.id === project.id) && <option value={project.id}>{project.name}</option>}
           {projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-          <option value="new">Nuovo progetto…</option>
+          <option value="new">{t('newProject')}</option>
         </select>
-        <button className="icon-button" aria-label="Annulla ultima modifica" title="Annulla · ⌘Z / Ctrl+Z" disabled={!history.length || busy} onClick={undo}><Icon name="undo" /></button>
+        <button className="icon-button" aria-label={t('undoLast')} title={t('undoShortcut')} disabled={!history.length || busy} onClick={undo}><Icon name="undo" /></button>
       </div>
       <div className="output-tools">
+        <select className="language-select" aria-label={t('language')} title={t('language')}
+          value={locale} disabled={busy} onChange={event => setLocale(event.target.value as Locale)}>
+          <option value="it" lang="it">Italiano</option>
+          <option value="en" lang="en">English</option>
+        </select>
         <button className="icon-label" disabled={busy} onClick={() => editTemplate(card?.frame.kind === 'template' ? card.frame.template : 'full-art')}>
-          <Icon name="settings" /><span>Editor cornici</span>
+          <Icon name="settings" /><span>{t('frameEditor')}</span>
         </button>
-        <button className="icon-button" aria-label="Set di cornici" title="Set di cornici" disabled={busy} onClick={manageFrameSets}><Icon name="frames" /></button>
-        <button className="icon-label primary" aria-label="Stampa" title="Stampa · ⌘↵ / Ctrl+Enter" disabled={!project.cards.length || busy || !!imageLoads.size} onClick={() => { setError(''); setPanel('print'); }}><Icon name="print" /><span>Stampa</span></button>
+        <button className="icon-button" aria-label={t('frameSets')} title={t('frameSets')} disabled={busy} onClick={manageFrameSets}><Icon name="frames" /></button>
+        <button className="icon-label primary" aria-label={t('print')} title={t('printShortcut')} disabled={!project.cards.length || busy || !!imageLoads.size} onClick={() => { setError(''); setPanel('print'); }}><Icon name="print" /><span>{t('print')}</span></button>
       </div>
     </header>
     <div className="columns">
       <aside className="deck">
-        <div className="panel-title"><h2>Mazzo</h2><span className="muted">{total} {total === 1 ? 'copia' : 'copie'}</span></div>
+        <div className="panel-title"><h2>{t('deck')}</h2><span className="muted">{t(total === 1 ? 'copyCountOne' : 'copyCount', { count: total })}</span></div>
         <div className="deck-controls">
-          <input aria-label="Nome del progetto" key={`${project.id}/${project.name}`} defaultValue={project.name} maxLength={100}
+          <input aria-label={t('projectName')} key={`${project.id}/${project.name}`} defaultValue={project.name} maxLength={100}
             onBlur={event => {
-              const name = event.target.value.trim() || 'Mazzo senza titolo';
+              const name = event.target.value.trim() || t('untitledDeck');
               event.target.value = name;
               if (name !== project.name) commit(value => ({ ...value, name }));
             }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
           {card && catalogSearch}
           <div className="deck-add">
-            <button className="icon-label" onClick={() => { setError(''); setDeckErrors([]); setPanel('deck'); }} aria-label="Importa lista" disabled={busy}><Icon name="import" /><span>Importa lista</span></button>
-            <button className="icon-label" onClick={() => addCards([createCard(blankCard)])} aria-label="Aggiungi carta vuota" disabled={busy || project.cards.length >= 1500}><Icon name="add" /><span>Carta vuota</span></button>
+            <button className="icon-label" onClick={() => { setError(''); setDeckErrors([]); setPanel('deck'); }} aria-label={t('importList')} disabled={busy}><Icon name="import" /><span>{t('importList')}</span></button>
+            <button className="icon-label" onClick={() => addCards([createCard({ ...blankCard, name: t('untitledCard') })])} aria-label={t('addBlankCard')} disabled={busy || project.cards.length >= 1500}><Icon name="add" /><span>{t('blankCard')}</span></button>
           </div>
         </div>
         {project.cards.length > 0 && <>
           <div className="selection-bar">
-            <label className="check"><input type="checkbox" aria-label="Seleziona tutte le carte" checked={selection.length === project.cards.length} onChange={event =>
+            <label className="check"><input type="checkbox" aria-label={t('selectAll')} checked={selection.length === project.cards.length} onChange={event =>
               setSelected(event.target.checked ? new Set(project.cards.map(item => item.id)) : new Set())
-            } />{selection.length ? `${selection.length} selezionate` : 'Tutte'}</label>
-            <div className="selection-actions" role="group" aria-label="Azioni sulle carte del mazzo">
-              <button className="icon-label" aria-label="Modifica in blocco" title="Modifica in blocco" disabled={busy} onClick={() => { setError(''); setPanel('batch'); }}><Icon name="batch" /><span>In blocco</span></button>
-              <button className="icon-button" aria-label={selection.length ? `Rimuovi ${selection.length} carte selezionate` : 'Rimuovi carte selezionate'} title="Rimuovi selezionate" disabled={!selection.length || busy} onClick={() => {
+            } />{selection.length ? t('selectedCount', { count: selection.length }) : t('all')}</label>
+            <div className="selection-actions" role="group" aria-label={t('deckActions')}>
+              <button className="icon-label" aria-label={t('batchEdit')} title={t('batchEdit')} disabled={busy} onClick={() => { setError(''); setPanel('batch'); }}><Icon name="batch" /><span>{t('batch')}</span></button>
+              <button className="icon-button" aria-label={selection.length ? t(selection.length === 1 ? 'removeCardsOne' : 'removeCards', { count: selection.length }) : t('removeSelectedCards')} title={t('removeSelected')} disabled={!selection.length || busy} onClick={() => {
                 commit(value => ({ ...value, cards: value.cards.filter(item => !selected.has(item.id)) }));
                 setSelected(new Set()); setZone(undefined); setBack(false);
               }}><Icon name="remove" /></button>
@@ -477,12 +473,12 @@ export function App() {
           </div>
           <ul className="deck-list">
             {project.cards.map(item => <li key={item.id} className={item.id === card?.id ? 'active' : ''}>
-              <input type="checkbox" aria-label={`Seleziona ${item.fields.name}`} checked={selected.has(item.id)} onChange={() => toggleSelected(item.id)} />
+              <input type="checkbox" aria-label={t('selectCard', { name: item.fields.name })} checked={selected.has(item.id)} onChange={() => toggleSelected(item.id)} />
               <button className="card-row" aria-current={item.id === card?.id ? 'true' : undefined} onClick={() => activate(item.id)}>
-                <strong>{item.fields.name || 'Carta senza titolo'}</strong>
-                <small>{item.source.set ? `${item.source.set.toUpperCase()} · ${item.source.number}` : 'Carta personalizzata'}</small>
+                <strong>{item.fields.name || t('untitledCard')}</strong>
+                <small>{item.source.set ? `${item.source.set.toUpperCase()} · ${item.source.number}` : t('customCard')}</small>
               </button>
-              <input type="number" aria-label={`Quantità ${item.fields.name}`} key={item.count} min={1} max={999} defaultValue={item.count}
+              <input type="number" aria-label={t('cardQuantity', { name: item.fields.name })} key={item.count} min={1} max={999} defaultValue={item.count}
                 onBlur={event => {
                   const count = Math.trunc(event.target.valueAsNumber);
                   if (count >= 1 && count <= 999 && count !== item.count) update(item.id, { count });
@@ -500,7 +496,7 @@ export function App() {
         const file = event.dataTransfer.files[0];
         if (!card?.source.editable || !file) return;
         void action(async () => {
-          if (file.size > 32 * 1024 * 1024) throw new Error('L’immagine supera 32 MB.');
+          if (file.size > 32 * 1024 * 1024) throw new LocalizedError('imageSize');
           const asset = await window.proxy.dropped(new Uint8Array(await file.arrayBuffer()), file.name, false);
           update(card.id, { art: asset.id, crop: defaultCrop });
           if (card.frame.kind === 'printing') setZone(undefined);
@@ -508,31 +504,31 @@ export function App() {
       }}>
         {card ? <>
           <div className="stage-heading">
-            <h1 title={card.fields.name || undefined}>{card.fields.name || 'Carta senza titolo'}</h1>
+            <h1 title={card.fields.name || undefined}>{card.fields.name || t('untitledCard')}</h1>
           </div>
           <div className="stage-sheet">
             {usesArt(card) && loadingImage && !(card.art || card.source.images.art) ? (
-              <p className="missing-printing" role="status">Caricamento dell’illustrazione…</p>
+              <p className="missing-printing" role="status">{t('loadingArt')}</p>
             ) : card.frame.kind === 'printing' && !card.source.images.front ? <div className="missing-printing">
-              <p role="status">{loadingImage ? 'Caricamento della scansione…' : card.source.images.error ?? 'Scansione dell’edizione non disponibile.'}</p>
-              {!loadingImage && <button onClick={() => void loadPrintingImages(card)}>Riprova a caricare</button>}
+              <p role="status">{loadingImage ? t('loadingScan') : card.source.images.error ?? t('scanUnavailable')}</p>
+              {!loadingImage && <button onClick={() => void loadPrintingImages(card)}>{t('retryLoading')}</button>}
             </div> : <Preview card={renderedCard ?? card} back={back} showThirds zone={zone} onZone={changeZone}
               onCrop={card.source.editable && !back && (card.frame.kind !== 'printing' || !!card.art) ? crop => update(card.id, { crop }, true) : undefined} />}
           </div>
           {card.source.editable && <button className={`image-dropzone${draggingImage ? ' dragging' : ''}`} disabled={busy} onClick={() => void selectAssets(false).then(image => {
             if (image) update(card.id, { art: image.id, crop: defaultCrop });
-          })}>Trascina qui un’immagine oppure seleziona un file</button>}
+          })}>{t('dropImage')}</button>}
           <div className="stage-meta">
             <span>63 × 88 mm</span>
-            {card.source.images.back && <div className="toggle" role="group" aria-label="Lato della carta">
-              <button aria-pressed={!back} onClick={() => setBack(false)}>Fronte</button>
-              <button aria-pressed={back} onClick={() => setBack(true)}>Retro</button>
+            {card.source.images.back && <div className="toggle" role="group" aria-label={t('cardSide')}>
+              <button aria-pressed={!back} onClick={() => setBack(false)}>{t('front')}</button>
+              <button aria-pressed={back} onClick={() => setBack(true)}>{t('back')}</button>
             </div>}
             {card.source.setName && <span className="stage-edition">{card.source.setName}</span>}
           </div>
         </> : <div className="empty">
-          <h1>Cerca una carta</h1>
-          <p>Inserisci il nome per vedere la carta e i suoi dati.</p>
+          <h1>{t('findCard')}</h1>
+          <p>{t('findCardHelp')}</p>
           {catalogSearch}
         </div>}
       </main>
@@ -545,17 +541,17 @@ export function App() {
           if (card.frame.kind !== 'custom') return;
           const { asset, zones, textColor, fontFamily } = card.frame;
           const existing = project.presets.find(preset => preset.name.localeCompare(name, 'it', { sensitivity: 'base' }) === 0);
-          if (!existing && project.presets.length >= 200) { setError('Il progetto può contenere al massimo 200 preset.'); return; }
+          if (!existing && project.presets.length >= 200) { setError(t('presetLimit')); return; }
           commit(value => ({ ...value, presets: [...value.presets.filter(preset => preset.id !== existing?.id), { id: existing?.id ?? crypto.randomUUID(), name, asset, zones, textColor, fontFamily }] }));
-          setNotice(existing ? 'Preset aggiornato' : 'Preset salvato');
+          setNotice({ key: existing ? 'presetUpdated' : 'presetSaved' });
         }} />
-        : <aside className="inspector empty-inspector"><div className="panel-title"><h2>Proprietà</h2></div><p className="muted">Qui puoi modificare la carta selezionata.</p></aside>}
+        : <aside className="inspector empty-inspector"><div className="panel-title"><h2>{t('properties')}</h2></div><p className="muted">{t('propertiesHelp')}</p></aside>}
     </div>
     <footer className="status" aria-live="polite">
-      <span className="save-status">{saveError ? <><span className="error">{saveError}</span> <button onClick={() => persist(project)}>Riprova</button></> : saving ? 'Salvataggio…' : 'Progetto locale'}</span>
-      <span className={error && !panel ? 'error' : ''}>{error && !panel ? error : busy && !panel ? 'Caricamento…' : notice}</span>
+      <span className="save-status">{saveError ? <><span className="error">{saveError}</span> <button onClick={() => persist(project)}>{t('retry')}</button></> : saving ? t('saving') : t('localProject')}</span>
+      <span className={error && !panel ? 'error' : ''}>{error && !panel ? error : busy && !panel ? t('loading') : notice && t(notice.key, notice.count === undefined ? undefined : { count: notice.count })}</span>
     </footer>
-    {panel && <Dialog title={titles[panel]} busy={busy} wide={panel === 'cards' || panel === 'templates'}
+    {panel && <Dialog title={t(titles[panel])} busy={busy} wide={panel === 'cards' || panel === 'templates'}
       back={panel === 'sheet' || panel === 'cards' ? () => setPanel('print') : undefined} close={() => {
         if (panel === 'templates') lastHistory.current = 0;
         setError('');
@@ -570,39 +566,39 @@ export function App() {
           <button disabled={busy} onClick={() => void action(async () => {
             const text = await window.proxy.deckFile();
             if (text !== null) setDeckText(text);
-          })}>Apri file di testo</button>
+          })}>{t('openTextFile')}</button>
         </div>
-        <label>Lista delle carte<textarea rows={9} value={deckText} onChange={event => setDeckText(event.target.value)} disabled={busy}
+        <label>{t('decklist')}<textarea rows={9} value={deckText} onChange={event => setDeckText(event.target.value)} disabled={busy}
           placeholder={'2 Lightning Bolt (2X2) 117\n1 Sol Ring\nForest'} /></label>
         {deckProgress && <p role="status">{deckProgress}</p>}
         {deckErrors.length > 0 && <ul className="error messages">{deckErrors.map((entry, i) => <li key={i}>{entry}</li>)}</ul>}
         <div className="dialog-actions">
-          <button className="primary" disabled={busy || !deckText.trim()} onClick={importDeck}>Importa carte</button>
+          <button className="primary" disabled={busy || !deckText.trim()} onClick={importDeck}>{t('importCards')}</button>
         </div>
       </>}
       {panel === 'batch' && <Batch cards={batchCards} presets={project.presets} fullArtBase={project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase} frameSets={project.frameSets ?? []} close={() => setPanel(undefined)} apply={updates => {
         const map = new Map(updates.map(item => [item.id, item]));
         commit(value => ({ ...value, cards: value.cards.map(item => map.get(item.id) ?? item) }));
-        setNotice(updates.length === 1 ? 'Modificata 1 carta' : `Modificate ${updates.length} carte`); setPanel(undefined);
+        setNotice({ key: updates.length === 1 ? 'changedCardsOne' : 'changedCards', count: updates.length }); setPanel(undefined);
       }} />}
       {panel === 'frame-sets' && <FrameSets sets={project.frameSets ?? []} active={card?.frame.kind === 'color-set' ? card.frame.set.id : undefined}
         count={batchCards.filter(item => item.source.editable).length} save={(set, apply) => {
           saveColorSet(set, apply ? batchCards : []);
           setZone(undefined);
           setPanel(undefined);
-          setNotice(apply ? 'Set salvato e applicato' : 'Set di cornici salvato');
+          setNotice({ key: apply ? 'setSavedApplied' : 'setSaved' });
         }} />}
       {panel === 'print' && <PrintChoices cards={project.cards.slice(0, 9).map(item => withProjectTemplate(item, project.templateAppearances))} choose={setPanel} />}
       {panel === 'cards' && <CardExportPanel project={project} onBusy={setBusy} onExport={() => {
-        setNotice('ZIP salvato'); setPanel(undefined);
+        setNotice({ key: 'zipSaved' }); setPanel(undefined);
       }} />}
       {panel === 'sheet' && <PrintPanel project={project} onBusy={setBusy} onExport={() => {
-        setNotice('PDF salvato'); setPanel(undefined);
+        setNotice({ key: 'pdfSaved' }); setPanel(undefined);
       }} />}
       {panel === 'frames' && <FrameGallery editions={editions} active={card?.frame.kind === 'printing' ? card.source.printingId : undefined}
         pending={busy} hasArt={!!(card?.art ?? card?.source.images.art)} select={(printing, keepArt) => replacePrinting(printing, true, keepArt)} />}
       {panel === 'printings' && <div className="edition-list">
-        {busy && <p role="status">Caricamento edizioni…</p>}
+        {busy && <p role="status">{t('loadingPrintings')}</p>}
         {editions.map(printing => <button key={printing.id} disabled={busy || printing.id === card?.source.printingId} onClick={() => replacePrinting(printing)}>
           <strong>{printing.setName}</strong><small>{printing.set.toUpperCase()} · {printing.number} · {printing.lang.toUpperCase()}</small>
         </button>)}

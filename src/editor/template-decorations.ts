@@ -1,3 +1,4 @@
+import { LocalizedError } from '../shared/i18n.js';
 import { pixels } from '../shared/print.js';
 import type { FrameDecoration } from '../shared/model.js';
 import { templateBox } from './template-effects.js';
@@ -41,28 +42,28 @@ export function loadMotif(motif: Motif) {
 
 export async function importDecoration(file: File) {
   if (/\.png$/i.test(file.name)) {
-    if (file.size > 32 * 1024 * 1024) throw new Error('Il PNG supera 32 MB.');
+    if (file.size > 32 * 1024 * 1024) throw new LocalizedError('pngSize');
     const asset = await window.proxy.dropped(new Uint8Array(await file.arrayBuffer()), file.name.slice(0, 255), false);
-    if (!asset.png) throw new Error('Il file selezionato deve essere un PNG o un SVG.');
+    if (!asset.png) throw new LocalizedError('decorationType');
     return asset;
   }
-  if (!/\.svg$/i.test(file.name)) throw new Error('Scegli un file SVG o PNG.');
-  if (file.size > 2 * 1024 * 1024) throw new Error('L’SVG supera 2 MB.');
+  if (!/\.svg$/i.test(file.name)) throw new LocalizedError('chooseDecorationFile');
+  if (file.size > 2 * 1024 * 1024) throw new LocalizedError('svgSize');
   // Decode strictly as an image. The browser disables scripts and external SVG resources in this context.
   const url = URL.createObjectURL(new Blob([file], { type: 'image/svg+xml' }));
   try {
     const image = new Image();
     image.src = url;
-    await image.decode().catch(() => { throw new Error('Impossibile leggere l’SVG.'); });
+    await image.decode().catch(() => { throw new LocalizedError('svgReadFailed'); });
     const { naturalWidth: w, naturalHeight: h } = image;
-    if (!w || !h) throw new Error('L’SVG deve avere dimensioni valide.');
+    if (!w || !h) throw new LocalizedError('svgDimensions');
     const scale = Math.min(pixels.width * 2 / w, pixels.height * 2 / h);
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(w * scale));
     canvas.height = Math.max(1, Math.round(h * scale));
     canvas.getContext('2d')!.drawImage(image, 0, 0, canvas.width, canvas.height);
     const png = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve));
-    if (!png) throw new Error('Impossibile preparare la decorazione SVG.');
+    if (!png) throw new LocalizedError('svgPreparationFailed');
     return await window.proxy.dropped(new Uint8Array(await png.arrayBuffer()), file.name.slice(0, 255), false);
   } finally {
     URL.revokeObjectURL(url);

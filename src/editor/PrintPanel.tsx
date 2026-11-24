@@ -1,3 +1,5 @@
+import { errorMessage } from '../shared/i18n.js';
+import { useI18n } from './i18n.js';
 import { useMemo, useState } from 'react';
 import type { Project, PrintSettings } from '../shared/model.js';
 import { withProjectTemplate } from '../shared/templates.js';
@@ -5,6 +7,7 @@ import { cardHeight, cardWidth, cutSegments, papers, printSheets } from '../shar
 import { Preview } from './Preview.js';
 
 export function PrintPanel({ project, onExport, onBusy }: { project: Project; onExport: () => void; onBusy: (value: boolean) => void }) {
+  const { t, locale } = useI18n();
   const [settings, setSettings] = useState<PrintSettings>({ paper: 'A4', cut: true, backs: true });
   const [index, setIndex] = useState(0);
   const [progress, setProgress] = useState<number | null>(null);
@@ -25,10 +28,10 @@ export function PrintPanel({ project, onExport, onBusy }: { project: Project; on
     setProgress(0);
     try {
       const { createPdf } = await import('./pdf.js');
-      const data = await createPdf(sheets, settings, project.name, setProgress);
+      const data = await createPdf(sheets, settings, project.name, setProgress, locale);
       if (await window.proxy.pdf(project.name, data)) onExport();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause, locale));
     } finally {
       setProgress(null);
       onBusy(false);
@@ -38,25 +41,25 @@ export function PrintPanel({ project, onExport, onBusy }: { project: Project; on
   return <>
     <div className="print-panel">
       <div className="print-options">
-        <label>Carta<select disabled={working} value={settings.paper} onChange={event => setSettings({ ...settings, paper: event.target.value as PrintSettings['paper'] })}>
+        <label>{t('paper')}<select disabled={working} value={settings.paper} onChange={event => setSettings({ ...settings, paper: event.target.value as PrintSettings['paper'] })}>
           <option>A4</option><option>Letter</option>
         </select></label>
-        <label className="check"><input type="checkbox" disabled={working} checked={settings.cut} onChange={event => setSettings({ ...settings, cut: event.target.checked })} />Segni di taglio</label>
+        <label className="check"><input type="checkbox" disabled={working} checked={settings.cut} onChange={event => setSettings({ ...settings, cut: event.target.checked })} />{t('cutMarks')}</label>
         <label className="check"><input type="checkbox" disabled={working} checked={settings.backs} onChange={event => {
           setIndex(0); setSettings({ ...settings, backs: event.target.checked });
-        }} />Includi i retro</label>
-        <p className="muted">Stampa al 100%. Per i retro, imposta il ribaltamento sul lato lungo.</p>
-        {count > limit && <p className="error">Il PDF può contenere al massimo {limit} copie per esportazione.</p>}
+        }} />{t('includeBacks')}</label>
+        <p className="muted">{t('printingHelp')}</p>
+        {count > limit && <p className="error">{t('pdfCopyLimit', { limit })}</p>}
         {error && <p className="error" role="alert">{error}</p>}
-        {working && <p role="status">Pagina {progress} di {sheets.length}</p>}
+        {working && <p role="status">{t('pageNumber', { page: progress, total: sheets.length })}</p>}
       </div>
       {sheet && <div className="print-review">
         <div className="pager">
-          <button aria-label="Pagina precedente" disabled={current === 0} onClick={() => setIndex(current - 1)}>‹</button>
-          <span>Pagina {current + 1} di {sheets.length} · {sheet.back ? 'Retro' : 'Fronte'}</span>
-          <button aria-label="Pagina successiva" disabled={current === sheets.length - 1} onClick={() => setIndex(current + 1)}>›</button>
+          <button aria-label={t('previousPage')} disabled={current === 0} onClick={() => setIndex(current - 1)}>‹</button>
+          <span>{t('pageNumber', { page: current + 1, total: sheets.length })} · {sheet.back ? t('back') : t('front')}</span>
+          <button aria-label={t('nextPage')} disabled={current === sheets.length - 1} onClick={() => setIndex(current + 1)}>›</button>
         </div>
-        <div className="paper" aria-label="Anteprima del foglio" style={{ aspectRatio: `${paperW} / ${paperH}` }}>
+        <div className="paper" aria-label={t('sheetPreview')} style={{ aspectRatio: `${paperW} / ${paperH}` }}>
           {sheet.slots.map(({ card, x, y }, slot) => <div key={`${current}/${slot}`} className="paper-card" style={{
             left: `${x / paperW * 100}%`, top: `${y / paperH * 100}%`, width: `${cardWidth / paperW * 100}%`, height: `${cardHeight / paperH * 100}%`
           }}><Preview card={card} back={sheet.back} /></div>)}
@@ -68,7 +71,7 @@ export function PrintPanel({ project, onExport, onBusy }: { project: Project; on
       </div>}
     </div>
     <div className="dialog-actions">
-      <button className="primary" disabled={!sheets.length || working} onClick={() => void exportPdf()}>Salva PDF</button>
+      <button className="primary" disabled={!sheets.length || working} onClick={() => void exportPdf()}>{t('savePdf')}</button>
     </div>
   </>;
 }

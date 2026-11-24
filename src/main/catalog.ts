@@ -1,3 +1,5 @@
+import { errorMessage, LocalizedError, translate } from '../shared/i18n.js';
+import type { Locale } from '../shared/i18n.js';
 import { z } from 'zod';
 import type { CardData, DeckEntry, Printing } from '../shared/model.js';
 import { normalizeName } from '../shared/deck.js';
@@ -36,25 +38,25 @@ const savedCards = new Map<string, CardData>();
 
 async function request(path: string, body?: unknown): Promise<unknown> {
   const url = new URL(path, api);
-  if (url.origin !== api) throw new Error('Indirizzo del catalogo non valido.');
+  if (url.origin !== api) throw new LocalizedError('catalogUrl');
   const key = url.href + (body ? JSON.stringify(body) : '');
   const hit = cache.get(key);
   if (hit && Date.now() - hit.time < 900_000) return hit.value;
   const queue = nextRequest.then(() => {
-    if (Date.now() < blockedUntil) throw new Error('Catalogo temporaneamente in pausa. Riprova tra poco.');
+    if (Date.now() < blockedUntil) throw new LocalizedError('catalogPaused');
   });
   nextRequest = queue.catch(() => {}).then(() => new Promise<void>(resolve => setTimeout(resolve, 120)));
   await queue;
   const response = await fetch(url, {
     headers: body ? { ...headers, 'Content-Type': 'application/json' } : headers,
     method: body ? 'POST' : 'GET', body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15_000)
-  }).catch(() => { throw new Error('Catalogo irraggiungibile. Verifica la connessione.'); });
+  }).catch(() => { throw new LocalizedError('catalogOffline'); });
   if (response.status === 404) return null;
   if (response.status === 429) {
     blockedUntil = Date.now() + Math.max(60, Number(response.headers.get('Retry-After')) || 0) * 1000;
-    throw new Error('Limite del catalogo raggiunto. Riprova tra almeno un minuto.');
+    throw new LocalizedError('catalogRateLimit');
   }
-  if (!response.ok) throw new Error(`Il catalogo ha risposto con errore ${response.status}.`);
+  if (!response.ok) throw new LocalizedError('catalogStatus', { status: response.status });
   const value: unknown = await response.json();
   if (cache.size >= 500) cache.delete(cache.keys().next().value!);
   cache.set(key, { time: Date.now(), value });
@@ -141,7 +143,7 @@ async function image(urls: Array<string | null | undefined>, name: string) {
     async bytes => (await storeImage(bytes, name)).id);
 }
 
-export async function getCard(id: string, includeImages = true): Promise<CardData> {
+export async function getCard(id: string, includeImages = true, locale: Locale = 'it'): Promise<CardData> {
   const saved = savedCards.get(id);
   if (saved) return saved;
   const card = scryCard.parse(await request('/cards/' + id));
@@ -182,7 +184,7 @@ export async function getCard(id: string, includeImages = true): Promise<CardDat
     back: back.status === 'fulfilled' ? back.value : undefined,
     art: art.status === 'fulfilled' ? art.value : undefined,
     error: front.status === 'rejected'
-      ? (front.reason instanceof Error ? front.reason.message : 'Download da Scryfall non riuscito.').slice(0, 300)
+      ? (front.reason instanceof Error ? errorMessage(front.reason, locale) : translate(locale, 'scryfallDownloadFailed')).slice(0, 300)
       : undefined
   };
   if (savedCards.size >= 500) savedCards.delete(savedCards.keys().next().value!);

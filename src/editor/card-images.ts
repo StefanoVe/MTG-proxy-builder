@@ -1,3 +1,4 @@
+import { LocalizedError } from '../shared/i18n.js';
 import type { Card } from '../shared/model.js';
 import { cardHeight, cardWidth } from '../shared/print.js';
 import { compose } from './compose.js';
@@ -116,7 +117,7 @@ export async function encodeCardImage(canvas: HTMLCanvasElement, format: ImageFo
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(blob => {
       if (blob?.type === type) resolve(blob);
-      else reject(new Error('Impossibile codificare l’immagine.'));
+      else reject(new LocalizedError('encodeImageFailed'));
     }, type, quality / 100);
   });
   return withPrintDensity(new Uint8Array(await blob.arrayBuffer()), format, dpi);
