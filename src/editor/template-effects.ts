@@ -1,4 +1,4 @@
-import { pixels } from '../shared/print.js';
+import { pixels } from '../shared/print.ts';
 import type { Rect, Template, TemplateAppearance } from '../shared/model.js';
 
 const { width, height } = pixels;
@@ -32,7 +32,8 @@ function wash(ctx: CanvasRenderingContext2D, template: Template, appearance: Tem
   let extent = settings?.height ?? defaultHeight;
   if (settings && settings.anchor !== 'manual') {
     const zone = appearance.zones[settings.anchor];
-    extent = top ? zone.y + zone.h - edge : edge - zone.y;
+    const boundary = zone.y + zone.h / 2 < 50 ? zone.y + zone.h : zone.y;
+    extent = top ? boundary - edge : edge - boundary;
   }
   extent = Math.min(max, extent);
   if (extent <= 0) return false;
