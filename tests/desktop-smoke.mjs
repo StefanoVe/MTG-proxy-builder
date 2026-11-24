@@ -101,8 +101,9 @@ try {
   await page.locator('.source').getByText('Magic 2011').waitFor();
   await page.getByLabel('Testo della carta').fill('Pesca una carta.');
   await page.getByRole('button', { name: 'Cornice', exact: true }).click();
-  assert.equal(await page.getByLabel('Template', { exact: true }).inputValue(), 'full-art');
-  await page.getByLabel('Template', { exact: true }).selectOption('extended-art');
+  const template = page.getByLabel(/^Template/);
+  assert.equal(await template.inputValue(), 'full-art');
+  await template.selectOption('extended-art');
   await page.getByRole('button', { name: 'Carta', exact: true }).click();
   assert.equal(await page.getByLabel('Testo della carta').inputValue(), 'Pesca una carta.');
   await page.locator('.source').getByText('Magic 2011').waitFor();
