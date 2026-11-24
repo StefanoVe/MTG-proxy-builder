@@ -16,7 +16,7 @@ export const defaultZones: Zones = {
 };
 
 const text = z.string().max(300);
-const printingImages = z.object({ front: assetId.optional(), back: assetId.optional(), art: assetId.optional(), error: text.optional() });
+const printingImages = z.object({ front: assetId.optional(), back: assetId.optional(), art: assetId.optional(), backArt: assetId.optional(), error: text.optional() });
 const faceDetails = z.object({
   name: text, mana: text, type: text, rules: z.string().max(12000),
   flavor: z.string().max(4000), artist: text, power: text, toughness: text, loyalty: text, defense: text
@@ -91,6 +91,17 @@ const projectFrameSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('preset'), id: uuid })
 ]);
 
+const cardSideSchema = z.object({
+  fields: cardDataSchema.pick({ name: true, mana: true, type: true, rules: true, artist: true, power: true, toughness: true, loyalty: true, defense: true }),
+  art: assetId.optional(),
+  zoneOverrides: zonesSchema.partial().optional(),
+  hiddenZones: z.array(z.enum(['art', 'title', 'type', 'rules', 'stats'])).optional(),
+  dividerOverrides: z.object({ titleDivider: z.boolean().optional(), divider: z.boolean().optional() }).optional(),
+  crop: z.object({ x: z.number().min(-1).max(1), y: z.number().min(-1).max(1), zoom: z.number().min(1).max(5) }),
+  frame: z.discriminatedUnion('kind', [builtInFrameSchema, z.object({ kind: z.literal('printing'), artZone: rect.optional() }), templateFrameSchema,
+    z.object({ kind: z.literal('color-set'), set: frameSetSchema }), customFrameSchema])
+});
+
 export const cardSchema = z.object({
   id: uuid, count: z.number().int().min(1).max(999), source: cardDataSchema,
   fields: cardDataSchema.pick({ name: true, mana: true, type: true, rules: true, artist: true, power: true, toughness: true, loyalty: true, defense: true }),
@@ -99,6 +110,7 @@ export const cardSchema = z.object({
   hiddenZones: z.array(z.enum(['art', 'title', 'type', 'rules', 'stats'])).optional(),
   dividerOverrides: z.object({ titleDivider: z.boolean().optional(), divider: z.boolean().optional() }).optional(),
   crop: z.object({ x: z.number().min(-1).max(1), y: z.number().min(-1).max(1), zoom: z.number().min(1).max(5) }),
+  backSide: cardSideSchema.optional(),
   frame: z.discriminatedUnion('kind', [
     builtInFrameSchema,
     z.object({ kind: z.literal('printing'), artZone: rect.optional() }),
@@ -133,7 +145,7 @@ export type Printing = {
   id: string; name: string; set: string; setName: string; number: string; lang: string;
   style?: PrintingStyle; thumbnail?: string;
 };
-export type PrintSettings = { paper: 'A4' | 'Letter'; cut: boolean; backs: boolean };
+export type PrintSettings = { paper: 'A4' | 'Letter'; cut: boolean; backs: boolean; bleed?: 'none' | 'mpc' | 'custom'; customMm?: number; fill?: 'mirror' | 'solid'; color?: string };
 export type ProxyAPI = {
   getLocale(): Promise<Locale>;
   setLocale(locale: Locale): Promise<void>;
@@ -171,7 +183,26 @@ export function createCard(source: CardData, count = 1): Card {
   };
 }
 
+/** Present one physical side as an ordinary card to the editor and renderer. */
+export function cardSide(card: Card, back: boolean): Card {
+  if (!back) return card;
+  const face = card.source.details?.faces[1];
+  const source = { ...card.source, name: face?.name ?? card.source.faceNames[1] ?? card.source.name,
+    ...(face ? { mana: face.mana, type: face.type, rules: face.rules, artist: face.artist, power: face.power,
+      toughness: face.toughness, loyalty: face.loyalty, defense: face.defense } : {}),
+    editable: true, images: { front: card.source.images.back, art: card.source.images.backArt },
+    details: card.source.details ? { ...card.source.details, printedName: face?.name, faces: [] } : undefined };
+  const initial = createCard(source, card.count);
+  return { ...card, ...initial, ...card.backSide, id: card.id, source, backSide: undefined };
+}
+
+export function sideState(card: Card): NonNullable<Card['backSide']> {
+  const { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides } = card;
+  return { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides };
+}
+
 export function isCardModified(card: Card): boolean {
+  if (card.backSide && isCardModified(cardSide(card, true))) return true;
   const { frame, crop } = card;
   const defaultFrame = card.source.printingId
     ? frame.kind === 'printing' && !frame.artZone

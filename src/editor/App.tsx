@@ -4,9 +4,9 @@ import { useI18n } from './i18n.js';
 import { projectCards, projectFrame, templateAppearance, withProjectFrame } from '../shared/templates.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { blankCard, createCard, createProject, defaultCrop, defaultZones, isCardModified } from '../shared/model.js';
+import { assetURL, blankCard, cardSide, createCard, createProject, defaultCrop, defaultZones, isCardModified, sideState } from '../shared/model.js';
 import type { Card, DeckEntry, FrameSet, Printing, Project, Rect, Template, TemplateAppearance, Zones } from '../shared/model.js';
-import { parseDeckRows } from '../shared/deck.js';
+import { matchesCardSearch, parseDeckRows } from '../shared/deck.js';
 import { loadDeckCards } from '../shared/deck-import.js';
 import { FrameSets } from './FrameSets.js';
 import { FrameGallery } from './FrameGallery.js';
@@ -73,6 +73,7 @@ export function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [zone, setZone] = useState<keyof Zones>();
   const [back, setBack] = useState(false);
+  const [compare, setCompare] = useState(false);
   const [panel, setPanel] = useState<Panel>();
   const [template, setTemplate] = useState<Template>('full-art');
   const [saving, setSaving] = useState(false);
@@ -98,6 +99,8 @@ export function App() {
   const card = project?.cards.find(item => item.id === active) ?? project?.cards[0];
   const sharedFrame = project ? projectFrame(project) : undefined;
   const renderedCard = useMemo(() => card && project ? withProjectFrame(card, project) : undefined, [card, project]);
+  const selectedCard = card ? cardSide(card, back) : undefined;
+  const selectedRendered = renderedCard ? cardSide(renderedCard, back) : undefined;
   const needsDownload = (item: Card) => !!project && needsImages(item) && !attemptedImages.current.has(imageKey(project.id, item));
   const nextImageCard = renderedCard && needsDownload(renderedCard) ? renderedCard
     : project && sharedFrame ? projectCards(project).find(needsDownload) : undefined;
@@ -197,6 +200,12 @@ export function App() {
     commit(value => ({ ...value, cards: value.cards.map(item => item.id === id ? { ...item, ...patch } : item) }), group);
   }
 
+  function updateSide(id: string, patch: Partial<Card>, group = false) {
+    if (!back) return update(id, patch, group);
+    commit(value => ({ ...value, cards: value.cards.map(item => item.id === id
+      ? { ...item, backSide: sideState({ ...cardSide(item, true), ...patch }) } : item) }), group);
+  }
+
   function activate(id: string) {
     setActive(id);
     setZone(undefined);
@@ -243,7 +252,7 @@ export function App() {
     const next = { ...current, cards: current.cards.map(item => item.id === card.id
       ? { ...item, source: { ...item.source, images: {
         front: images.front ?? item.source.images.front, back: images.back ?? item.source.images.back,
-        art: images.art ?? item.source.images.art, error: images.error
+        art: images.art ?? item.source.images.art, backArt: images.backArt ?? item.source.images.backArt, error: images.error
       } } } : item) };
     live.current = next;
     setProject(next);
@@ -253,6 +262,14 @@ export function App() {
   useEffect(() => {
     if (nextImageCard && !imageLoads.size && needsDownload(nextImageCard)) void loadPrintingImages(nextImageCard);
   }, [nextImageCard, imageLoads.size]);
+
+  useEffect(() => {
+    if (compare && renderedCard?.source.printingId && !(back ? renderedCard.source.images.back : renderedCard.source.images.front)
+      && !imageLoads.size && !attemptedImages.current.has(`compare/${renderedCard.id}/${back}`)) {
+      attemptedImages.current.add(`compare/${renderedCard.id}/${back}`);
+      void loadPrintingImages(renderedCard);
+    }
+  }, [compare, renderedCard, back, imageLoads.size]);
 
   async function lookup(printing?: Printing) {
     if (busy || (!printing && !query.trim())) return;
@@ -301,7 +318,7 @@ export function App() {
       const art = frameOnly
         ? keepArt ? card.art ?? (changed ? card.source.images.art : undefined) : undefined
         : card.art;
-      update(card.id, { source, fields, frame, art, crop: art ? card.crop : defaultCrop });
+      update(card.id, { source, fields, frame, art, crop: art ? card.crop : defaultCrop, backSide: changed ? undefined : card.backSide });
       setZone(undefined);
       setBack(false);
       setPanel(undefined);
@@ -375,11 +392,11 @@ export function App() {
   }
 
   function changeZone(rect: Rect) {
-    if (!renderedCard || !zone) return;
-    if (renderedCard.frame.kind === 'printing' && zone === 'art') {
-      update(renderedCard.id, { frame: { ...renderedCard.frame, artZone: rect } }, true);
-    } else if (renderedCard.frame.kind !== 'printing') {
-      update(renderedCard.id, { zoneOverrides: { ...renderedCard.zoneOverrides, [zone]: rect } }, true);
+    if (!selectedRendered || !zone) return;
+    if (selectedRendered.frame.kind === 'printing' && zone === 'art') {
+      updateSide(selectedRendered.id, { frame: { ...selectedRendered.frame, artZone: rect } }, true);
+    } else if (selectedRendered.frame.kind !== 'printing') {
+      updateSide(selectedRendered.id, { zoneOverrides: { ...selectedRendered.zoneOverrides, [zone]: rect } }, true);
     }
   }
 
@@ -426,7 +443,7 @@ export function App() {
   if (!project) return <div className="initial" role="status">{t('openingApp')}</div>;
   const total = project.cards.reduce((sum, item) => sum + item.count, 0);
   const selection = project.cards.filter(item => selected.has(item.id));
-  const visibleCards = project.cards.filter(item => (item.fields.name || t('untitledCard')).toLocaleLowerCase(locale).includes(listQuery.trim().toLocaleLowerCase(locale)));
+  const visibleCards = project.cards.filter(item => matchesCardSearch(item, listQuery, locale, t('untitledCard')));
   const batchCards = selection.length ? selection : project.cards;
   const loadingImage = !!renderedCard && (imageLoads.has(imageKey(project.id, renderedCard)) || needsDownload(renderedCard));
   const catalogSearch = <div className="catalog-search">
@@ -476,14 +493,13 @@ export function App() {
         <button className="icon-label primary" aria-label={t('print')} title={t('printShortcut')} disabled={!project.cards.length || busy || loadingImages} onClick={() => { setError(''); setPanel('print'); }}><Icon name="print" /><span>{t('print')}</span></button>
       </div>
     </header>
-    <div className={`columns${deckCollapsed ? ' deck-collapsed' : ''}`}>
+    <div className="columns">
       <aside className="deck">
         <div className="panel-title deck-title">
-          {!deckCollapsed && <><h2>{t('deck')}</h2><span className="muted">{t(total === 1 ? 'copyCountOne' : 'copyCount', { count: total })}</span></>}
+          <h2>{t('deck')}</h2><span className="muted">{t(total === 1 ? 'copyCountOne' : 'copyCount', { count: total })}</span>
           <button className="icon-button" aria-label={t(deckCollapsed ? 'expandDeck' : 'collapseDeck')} title={t(deckCollapsed ? 'expandDeck' : 'collapseDeck')} aria-expanded={!deckCollapsed} aria-controls="deck-content" onClick={() => setDeckCollapsed(value => !value)}><Icon name={deckCollapsed ? 'expand' : 'collapse'} /></button>
         </div>
-        <div id="deck-content" className="deck-content" hidden={deckCollapsed}>
-        <div className="deck-controls">
+        <div id="deck-content" className="deck-controls" hidden={deckCollapsed}>
           <input aria-label={t('projectName')} key={`${project.id}/${project.name}`} defaultValue={project.name} maxLength={100}
             onBlur={event => {
               const name = event.target.value.trim() || t('untitledDeck');
@@ -491,12 +507,12 @@ export function App() {
               if (name !== project.name) commit(value => ({ ...value, name }));
             }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
           <ProjectFrameSelect project={project} disabled={busy} change={changeProjectFrame} importFrame={importProjectFrame} />
-          {card && catalogSearch}
           <div className="deck-add">
             <button className="icon-label" onClick={() => { setError(''); setDeckErrors([]); setPanel('deck'); }} aria-label={t('importList')} disabled={busy}><Icon name="import" /><span>{t('importList')}</span></button>
             <button className="icon-label" onClick={() => addCards([createCard({ ...blankCard, name: t('untitledCard') })])} aria-label={t('addBlankCard')} disabled={busy || project.cards.length >= 1500}><Icon name="add" /><span>{t('blankCard')}</span></button>
           </div>
         </div>
+        {card && <div className="deck-catalog-search">{catalogSearch}</div>}
         {project.cards.length > 0 && <>
           <div className="deck-list-search">
             <input type="search" aria-label={t('filterAddedCards')} placeholder={t('filterAddedCards')} value={listQuery} onChange={event => setListQuery(event.target.value)} />
@@ -538,7 +554,6 @@ export function App() {
           </ul>
           {!visibleCards.length && <p className="deck-list-empty" role="status">{t('noAddedCardsFound')}</p>}
         </>}
-        </div>
       </aside>
       <main className="stage" onDragOver={event => { if (card?.source.editable && event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDraggingImage(true); } }} onDragLeave={event => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingImage(false);
@@ -550,7 +565,7 @@ export function App() {
         void action(async () => {
           if (file.size > 32 * 1024 * 1024) throw new LocalizedError('imageSize');
           const asset = await window.proxy.dropped(new Uint8Array(await file.arrayBuffer()), file.name, false);
-          update(card.id, { art: asset.id, crop: defaultCrop });
+          updateSide(card.id, { art: asset.id, crop: defaultCrop });
           if (renderedCard?.frame.kind === 'printing') setZone(undefined);
         });
       }}>
@@ -558,17 +573,30 @@ export function App() {
           <div className="stage-heading">
             <h1 title={card.fields.name || undefined}>{card.fields.name || t('untitledCard')}</h1>
           </div>
-          <div className="stage-sheet">
+          <div className={`stage-sheet${compare && card.source.printingId ? ' is-comparing' : ''}`}>
+            {card.source.printingId && <button className="compare-button" aria-pressed={compare} onClick={() => {
+              const next = !compare;
+              setCompare(next);
+            }}>{t('compareOriginal')}</button>}
+            <div className="stage-current">
             {usesArt(renderedCard) && loadingImage && !(card.art || card.source.images.art) ? (
               <p className="missing-printing" role="status">{t('loadingArt')}</p>
             ) : !usesArt(renderedCard) && !card.source.images.front ? <div className="missing-printing">
               <p role="status">{loadingImage ? t('loadingScan') : card.source.images.error ?? t('scanUnavailable')}</p>
               {!loadingImage && <button onClick={() => void loadPrintingImages(renderedCard)}>{t('retryLoading')}</button>}
-            </div> : <Preview card={renderedCard} back={back} showThirds zone={zone} onZone={changeZone}
-              onCrop={card.source.editable && !back && (renderedCard.frame.kind !== 'printing' || !!card.art) ? crop => update(card.id, { crop }, true) : undefined} />}
+            </div> : <Preview card={selectedRendered!} showThirds zone={zone} onZone={changeZone}
+              onCrop={selectedCard?.source.editable && (selectedRendered?.frame.kind !== 'printing' || !!selectedCard.art) ? crop => updateSide(card.id, { crop }, true) : undefined} />}
+            </div>
+            {compare && card.source.printingId && <div className="stage-original">
+              <span>{t('original')}</span>
+              {(back ? card.source.images.back : card.source.images.front) ? <img src={assetURL((back ? card.source.images.back : card.source.images.front)!)} alt={t('originalPrinting')} /> : <div className="missing-printing" role="status">
+                <p>{imageLoads.size ? t('loadingScan') : card.source.images.error ?? t('scanUnavailable')}</p>
+                {!imageLoads.size && <button onClick={() => void loadPrintingImages(renderedCard)}>{t('retryLoading')}</button>}
+              </div>}
+            </div>}
           </div>
           {card.source.editable && <button className={`image-dropzone${draggingImage ? ' dragging' : ''}`} disabled={busy} onClick={() => void selectAssets(false).then(image => {
-            if (image) update(card.id, { art: image.id, crop: defaultCrop });
+            if (image) updateSide(card.id, { art: image.id, crop: defaultCrop });
           })}>{t('dropImage')}</button>}
           <div className="stage-meta">
             <span>63 × 88 mm</span>
@@ -584,13 +612,14 @@ export function App() {
           {catalogSearch}
         </div>}
       </main>
-      {card && renderedCard ? <Inspector key={card.id} card={card} renderedCard={renderedCard} sharedFrame={!!sharedFrame} presets={project.presets} frameSets={project.frameSets ?? []}
+      {card && selectedCard && selectedRendered ? <Inspector key={`${card.id}/${back}`} card={selectedCard} renderedCard={selectedRendered} sharedFrame={!!sharedFrame} presets={project.presets} frameSets={project.frameSets ?? []}
         systemFonts={systemFonts}
         resetCard={() => {
-          commit(value => ({ ...value, cards: value.cards.map(item => item.id === card.id ? { ...createCard(item.source, item.count), id: item.id } : item) }));
-          setZone(undefined); setBack(false);
+          if (back) update(card.id, { backSide: undefined });
+          else commit(value => ({ ...value, cards: value.cards.map(item => item.id === card.id ? { ...createCard(item.source, item.count), id: item.id, backSide: item.backSide } : item) }));
+          setZone(undefined);
         }}
-        editFrameSet={set => saveColorSet(set, [], true)} update={patch => update(card.id, patch, true)}
+        editFrameSet={set => saveColorSet(set, [], true)} update={patch => updateSide(card.id, patch, true)}
         selectAssets={selectAssets} choosePrinting={() => choosePrinting('printings')} zone={zone} selectZone={setZone}
         fullArtBase={project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase}
         savePreset={name => {

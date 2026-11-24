@@ -188,6 +188,7 @@ export const messages = {
   editLayer: ["Regola il livello", "Edit layer"],
   decorationColor: ["Colore decorazione", "Decoration color"],
   original: ["Originale", "Original"],
+  compareOriginal: ["Confronta con originale", "Compare with original"],
   cardColor: ["Colore della carta", "Card color"],
   sameAsText: ["Come il testo", "Match text color"],
   custom: ["Personalizzato", "Custom"],

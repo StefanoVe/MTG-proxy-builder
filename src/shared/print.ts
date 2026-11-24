@@ -9,13 +9,20 @@ export const mmToPt = (mm: number) => mm * 72 / 25.4;
 export const papers = { A4: [210, 297], Letter: [215.9, 279.4] } as const;
 const gap = 2;
 
+export function bleedMm(settings: PrintSettings) {
+  return settings.bleed === 'mpc' ? 36 * 25.4 / 300 : settings.bleed === 'custom' ? (settings.customMm ?? 3) : 0;
+}
 export type Slot = { card: Card; x: number; y: number };
 export type Sheet = { back: boolean; slots: Slot[] };
 
 export function printSheets(cards: Card[], settings: PrintSettings): Sheet[] {
   const [width, height] = papers[settings.paper];
-  const left = (width - (3 * cardWidth + 2 * gap)) / 2;
-  const top = (height - (3 * cardHeight + 2 * gap)) / 2;
+  const margin = bleedMm(settings);
+  const spacing = Math.max(gap, 2 * margin);
+  const columns = Math.min(3, Math.floor((width - 2 * margin + spacing) / (cardWidth + spacing)));
+  const rows = Math.min(3, Math.floor((height - 2 * margin + spacing) / (cardHeight + spacing)));
+  const left = (width - (columns * cardWidth + (columns - 1) * spacing)) / 2;
+  const top = (height - (rows * cardHeight + (rows - 1) * spacing)) / 2;
   const sheets: Sheet[] = [];
   let page: Slot[] = [];
   const duplex = settings.backs && cards.some(card => card.source.images.back);
@@ -29,8 +36,8 @@ export function printSheets(cards: Card[], settings: PrintSettings): Sheet[] {
   for (const card of cards) {
     for (let i = 0; i < card.count; i++) {
       const index = page.length;
-      page.push({ card, x: left + (index % 3) * (cardWidth + gap), y: top + Math.floor(index / 3) * (cardHeight + gap) });
-      if (page.length === 9) appendPage();
+      page.push({ card, x: left + (index % columns) * (cardWidth + spacing), y: top + Math.floor(index / columns) * (cardHeight + spacing) });
+      if (page.length === columns * rows) appendPage();
     }
   }
   appendPage();

@@ -6,9 +6,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 import type { Card, Rect, Zones } from '../shared/model.js';
 import { compose } from './compose.js';
+import { drawCardImage, imageGeometry } from './card-images.js';
+import type { PrintSettings } from '../shared/model.js';
 
-export function Preview({ card, back = false, showThirds = false, onCrop, zone, guide, onZone, hideWarning }: {
+export function Preview({ card, back = false, showThirds = false, onCrop, zone, guide, onZone, hideWarning, bleedSettings }: {
   card: Card;
+  bleedSettings?: PrintSettings;
   back?: boolean;
   showThirds?: boolean;
   onCrop?: (crop: Card['crop']) => void;
@@ -30,9 +33,8 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
     void compose(offscreen, card, back).then(({ warning }) => {
       const canvas = ref.current;
       if (!active || !canvas) return;
-      canvas.width = offscreen.width;
-      canvas.height = offscreen.height;
-      canvas.getContext('2d')!.drawImage(offscreen, 0, 0);
+      if (bleedSettings) drawCardImage(canvas, offscreen, imageGeometry(300, bleedSettings.bleed ?? 'none', bleedSettings.customMm ?? 3), bleedSettings.fill ?? 'mirror', bleedSettings.color ?? '#000000');
+      else { canvas.width = offscreen.width; canvas.height = offscreen.height; canvas.getContext('2d')!.drawImage(offscreen, 0, 0); }
       setWarning(!hideWarning && warning ? new LocalizedError(warning) : undefined);
     }).catch((error: Error) => {
       if (!active) return;
@@ -41,7 +43,7 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
       setWarning(error);
     });
     return () => { active = false; };
-  }, [card, back, hideWarning]);
+  }, [card, back, hideWarning, bleedSettings]);
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas || !onCrop || rect || !canDrag) return;

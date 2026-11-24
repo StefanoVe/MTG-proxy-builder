@@ -23,7 +23,7 @@ export function templateEffectLimits(template: Template, effect: Effect) {
 }
 
 function wash(ctx: CanvasRenderingContext2D, template: Template, appearance: TemplateAppearance,
-  effect: Effect, color: string, strength: number) {
+  effect: Effect, color: string, strength: number, blurStep?: number) {
   if (!strength) return false;
   const { panel, radius } = regions[effect];
   const { edge, max, defaultHeight } = templateEffectLimits(template, effect);
@@ -41,9 +41,15 @@ function wash(ctx: CanvasRenderingContext2D, template: Template, appearance: Tem
   const tinted = (opacity: number) => color + Math.round(opacity * strength * 255).toString(16).padStart(2, '0');
   if (template === 'full-art') {
     const gradient = ctx.createLinearGradient(0, y * height / 100, 0, (y + extent) * height / 100);
-    gradient.addColorStop(0, tinted(top ? 1 : 0));
-    if (!top) gradient.addColorStop(17 / 48, tinted(.92));
-    gradient.addColorStop(1, tinted(top ? 0 : 1));
+    // Smooth both ends of the transition so it joins the untouched art without a visible edge.
+    for (let i = 0; i <= 96; i++) {
+      const position = i / 96;
+      const distance = top ? 1 - position : position;
+      const intensity = distance * distance * (3 - 2 * distance);
+      const fraction = blurStep === undefined ? intensity : Math.max(0, Math.min(1, intensity * 6 - blurStep));
+      const opacity = blurStep === undefined ? fraction : fraction * fraction * (3 - 2 * fraction);
+      gradient.addColorStop(position, tinted(opacity));
+    }
     ctx.fillStyle = gradient;
     ctx.fillRect(0, y * height / 100, width, extent * height / 100);
   } else {
@@ -76,14 +82,18 @@ export function blurTemplateArt(ctx: CanvasRenderingContext2D, template: Templat
   }
   for (const [effect, strength] of [['topEffect', appearance.titleBlur], ['bottomEffect', appearance.rulesBlur]] as const) {
     if (!strength) continue;
-    layer.clearRect(0, 0, width, height);
-    layer.filter = 'blur(' + strength + 'px)';
-    layer.drawImage(padded, -padding, -padding);
-    layer.filter = 'none';
-    layer.globalCompositeOperation = 'destination-in';
-    const masked = wash(layer, template, appearance, effect, '#ffffff', 1);
-    layer.globalCompositeOperation = 'source-over';
-    if (masked) ctx.drawImage(buffer, 0, 0);
+    // Crossfade successive blur radii instead of fading a single fully blurred image.
+    const steps = template === 'full-art' ? 6 : 1;
+    for (let step = 0; step < steps; step++) {
+      layer.clearRect(0, 0, width, height);
+      layer.filter = 'blur(' + (strength * (step + 1) / steps) + 'px)';
+      layer.drawImage(padded, -padding, -padding);
+      layer.filter = 'none';
+      layer.globalCompositeOperation = 'destination-in';
+      const masked = wash(layer, template, appearance, effect, '#ffffff', 1, steps > 1 ? step : undefined);
+      layer.globalCompositeOperation = 'source-over';
+      if (masked) ctx.drawImage(buffer, 0, 0);
+    }
   }
 }
 

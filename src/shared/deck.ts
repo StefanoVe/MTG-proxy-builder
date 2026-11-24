@@ -1,5 +1,16 @@
 import type { Asset, Card, DeckEntry } from './model.js';
 
+export function matchesCardSearch(card: Card, query: string, locale: string, untitled: string): boolean {
+  const term = query.trim().toLocaleLowerCase(locale);
+  if (!term) return true;
+  const sides = [card.fields, card.source, ...(card.source.details?.faces ?? [])];
+  const back = card.backSide?.fields ?? card.source.details?.faces[1];
+  if (back) sides.push(back);
+  return sides.some(fields => [fields.name || untitled, fields.mana, fields.type, fields.rules, fields.artist,
+    fields.power, fields.toughness, fields.loyalty, fields.defense]
+    .some(value => value.toLocaleLowerCase(locale).includes(term)));
+}
+
 export function normalizeName(name: string): string {
   return name.normalize('NFKD').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 }

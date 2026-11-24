@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { blankCard, createCard, createProject, defaultZones, isCardModified, projectSchema } from '../src/shared/model.ts';
+import { blankCard, cardSide, createCard, createProject, defaultZones, isCardModified, projectSchema, sideState } from '../src/shared/model.ts';
 import type { Asset, Card, FrameSet } from '../src/shared/model.ts';
 import { colorFrameLayers, colorsForFrame } from '../src/shared/frame-colors.ts';
-import { matchBatch, parseDeck } from '../src/shared/deck.ts';
+import { matchBatch, matchesCardSearch, parseDeck } from '../src/shared/deck.ts';
 import { cardWidth, cardHeight, mmToPt, papers, printSheets } from '../src/shared/print.ts';
 import { newTemplate, projectCards, templateAppearance, withProjectTemplate } from '../src/shared/templates.ts';
 
@@ -11,6 +11,43 @@ const options = { paper: 'A4', cut: true, backs: true } as const;
 const image = 'a'.repeat(64);
 const asset = (name: string): Asset => ({ id: image, name, png: true, alpha: true, width: 744, height: 1039 });
 const card = (name: string, count = 1): Card => createCard({ ...blankCard, name }, count);
+
+test('added card search includes edited fields and both sides', () => {
+  const front = card('Dragon');
+  front.fields.type = 'Creature — Dragon';
+  front.fields.rules = 'Flying and haste';
+  front.backSide = sideState({ ...front, fields: { ...front.fields, name: 'Reverse', type: 'Land', rules: 'Add mana' } });
+  for (const query of [' dragon ', 'CREATURE', 'flying', 'land', 'add mana', '']) {
+    assert.equal(matchesCardSearch(front, query, 'en', 'Untitled'), true, query);
+  }
+  assert.equal(matchesCardSearch(front, 'island', 'en', 'Untitled'), false);
+});
+
+test('added card search retains original information after edits', () => {
+  const original = createCard({ ...blankCard, name: 'Original name', type: 'Creature — Elf', rules: 'Draw a card' });
+  original.fields = { ...original.fields, name: 'New name', type: 'Land', rules: 'Add mana' };
+  for (const query of ['original name', 'elf', 'draw a card', 'new name', 'land', 'add mana']) {
+    assert.equal(matchesCardSearch(original, query, 'en', 'Untitled'), true, query);
+  }
+});
+
+test('each physical side retains independent edits through project serialization', () => {
+  const source = { ...blankCard, printingId: 'printing', name: 'Front // Back', images: { front: image, back: image, backArt: image },
+    faceNames: ['Front', 'Back'], details: { rarity: '', lang: 'en', flavor: '', faces: [
+      { name: 'Front', mana: '', type: 'Creature', rules: 'front', flavor: '', artist: '', power: '1', toughness: '1', loyalty: '', defense: '' },
+      { name: 'Back', mana: '', type: 'Creature', rules: 'back', flavor: '', artist: '', power: '2', toughness: '2', loyalty: '', defense: '' }
+    ] } };
+  const original = createCard(source, 2);
+  const reverse = cardSide(original, true);
+  assert.equal(reverse.fields.name, 'Back');
+  assert.equal(reverse.source.images.art, image);
+  const edited = { ...original, backSide: sideState({ ...reverse, fields: { ...reverse.fields, rules: 'changed' }, frame: newTemplate('full-art') }) };
+  assert.equal(isCardModified(edited), true);
+  assert.equal(edited.fields.rules, original.fields.rules);
+  const restored = projectSchema.parse(JSON.parse(JSON.stringify({ ...createProject(), cards: [edited] })));
+  assert.equal(cardSide(restored.cards[0], true).fields.rules, 'changed');
+  assert.equal(printSheets(restored.cards, options)[1].slots.length, 2);
+});
 
 test('decklist import preserves order, quantities, set and collector number and reports invalid quantities', () => {
   const { entries, errors } = parseDeck('Commander:\n1 Sol Ring\n2 Lightning Bolt (2X2) 117 *F*\n3xForest\nIsland\n0 Mountain\n4x Plains');
@@ -155,4 +192,24 @@ test('selects frame layers from the card colors and falls back to colorless when
   const project = createProject();
   const item = { ...card('Forest'), frame: { kind: 'color-set', set } };
   assert.deepEqual(projectSchema.parse({ ...project, frameSets: [set], cards: [item] }).cards[0].frame, item.frame);
+});
+
+test('print bleed fits within the page without overlap and keeps duplex trim aligned', () => {
+  const reversible = createCard({ ...blankCard, name: 'Two faces', editable: false, images: { front: image, back: image } }, 10);
+  for (const paper of ['A4', 'Letter'] as const) for (const margin of [3.048, 10]) {
+    const sheets = printSheets([reversible], { ...options, paper, bleed: 'custom', customMm: margin });
+    const [width, height] = papers[paper];
+    for (let i = 0; i < sheets.length; i += 2) {
+      const front = sheets[i], back = sheets[i + 1];
+      for (const [index, slot] of front.slots.entries()) {
+        assert.ok(slot.x - margin >= 0 && slot.y - margin >= 0);
+        assert.ok(slot.x + cardWidth + margin <= width && slot.y + cardHeight + margin <= height);
+        assert.ok(Math.abs(back.slots[index].x - (width - slot.x - cardWidth)) < 1e-9);
+        assert.equal(back.slots[index].y, slot.y);
+        for (const other of front.slots.slice(index + 1)) {
+          assert.ok(Math.abs(slot.x - other.x) >= cardWidth + 2 * margin - 1e-9 || Math.abs(slot.y - other.y) >= cardHeight + 2 * margin - 1e-9);
+        }
+      }
+    }
+  }
 });

@@ -9,7 +9,7 @@ import { drawDecorations, loadMotif } from './template-decorations.js';
 import { manaTokens, ruleWords } from '../shared/mana.js';
 import type { RuleRun } from '../shared/mana.js';
 import { drawSymbol, manaIcons } from './mana-icons.js';
-import { assetURL, defaultZones } from '../shared/model.js';
+import { assetURL, cardSide, defaultZones } from '../shared/model.js';
 import type { Card, Rect, Tone } from '../shared/model.js';
 import { findArtWindow, findTransparentArtWindow } from '../shared/art-window.js';
 import { pixels } from '../shared/print.js';
@@ -204,6 +204,7 @@ function framedPrinting(ctx: CanvasRenderingContext2D, scan: HTMLImageElement, a
 }
 
 export async function compose(canvas: HTMLCanvasElement, card: Card, back = false): Promise<{ warning?: MessageKey }> {
+  if (back) return compose(canvas, cardSide(card, true));
   const artId = card.art ?? card.source.images.art;
   const template = card.frame.kind === 'template' ? card.frame.template : undefined;
   const hidden = new Set(card.hiddenZones ?? []);
@@ -241,6 +242,16 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   ctx.fillStyle = '#1a1d1d';
   ctx.fillRect(0, 0, width, height);
   if (printed) {
+    // The sheet uses portrait slots. Rotate landscape scans into the slot rather
+    // than stretching them; the same raster is used for PDF and image export.
+    if (printed.naturalWidth > printed.naturalHeight && !replacement) {
+      ctx.save();
+      ctx.translate(0, height);
+      ctx.rotate(-Math.PI / 2);
+      ctx.drawImage(printed, 0, 0, height, width);
+      ctx.restore();
+      return {};
+    }
     if (replacement && art) {
       const rect = (card.frame.kind === 'printing' ? card.frame.artZone : undefined) ?? await detectedArtZone(card);
       if (rect) {

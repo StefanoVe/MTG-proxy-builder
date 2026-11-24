@@ -30,6 +30,8 @@ Scegli **Italiano** o **English** nella barra superiore. Al primo avvio l’app 
 
 Per carte da **63 × 88 mm**, stampa il PDF al **100%**. Per le carte a due facce, scegli il ribaltamento sul lato lungo. I layout speciali mantengono la grafica dell’edizione selezionata. Ogni esportazione accetta fino a 1500 copie.
 
+Per una carta con due facce disponibili, usa **Fronte** e **Retro** sotto l’anteprima per modificare separatamente testo, illustrazione e cornice. Le modifiche al testo attivano il template sulla faccia selezionata; il PDF e le immagini esportate usano le stesse impostazioni.
+
 <details>
 <summary>Set di cornici e simboli nel testo</summary>
 

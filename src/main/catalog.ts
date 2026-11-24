@@ -151,15 +151,16 @@ export async function getCard(id: string, includeImages = true, locale: Locale =
   const backFace = card.card_faces?.[1];
   const frontImages = card.image_uris ?? firstFace?.image_uris;
   const backImages = card.image_uris ? undefined : backFace?.image_uris;
-  const editable = ['normal', 'token', 'emblem'].includes(card.layout) && !card.card_faces &&
-    !/\bSaga\b/i.test(card.type_line ?? '');
+  const editable = true;
+  const physicalFaces = !!backImages;
+  const sections = !physicalFaces && card.card_faces?.length ? card.card_faces : undefined;
   const result: CardData = {
     printingId: card.id, oracleId: card.oracle_id ?? card.id, name: card.name,
     set: card.set, setName: card.set_name, number: card.collector_number, layout: card.layout,
     editable, colors: card.colors, images: {},
     faceNames: card.card_faces?.map(face => face.printed_name ?? face.name) ?? [],
     details: {
-      printedName: card.printed_name, rarity: card.rarity ?? '', lang: card.lang,
+      printedName: physicalFaces ? firstFace?.printed_name ?? firstFace?.name : card.printed_name, rarity: card.rarity ?? '', lang: card.lang,
       layeredArt: !card.full_art && card.border_color !== 'borderless' && !card.frame_effects?.includes('extendedart'), flavor: card.flavor_text ?? '',
       faces: card.card_faces?.map(face => ({
         name: face.printed_name ?? face.name, mana: face.mana_cost ?? '',
@@ -168,21 +169,23 @@ export async function getCard(id: string, includeImages = true, locale: Locale =
         power: face.power ?? '', toughness: face.toughness ?? '', loyalty: face.loyalty ?? '', defense: face.defense ?? ''
       })) ?? []
     },
-    mana: card.mana_cost ?? firstFace?.mana_cost ?? '', type: card.printed_type_line ?? card.type_line ?? '',
-    rules: card.printed_text ?? card.oracle_text ?? '', artist: card.artist ?? firstFace?.artist ?? '',
-    power: card.power ?? '', toughness: card.toughness ?? '', loyalty: card.loyalty ?? '', defense: card.defense ?? ''
+    mana: card.mana_cost ?? firstFace?.mana_cost ?? '', type: (physicalFaces ? firstFace?.printed_type_line ?? firstFace?.type_line : card.printed_type_line ?? card.type_line) ?? '',
+    rules: (physicalFaces ? firstFace?.printed_text ?? firstFace?.oracle_text : card.printed_text ?? card.oracle_text ?? sections?.map(face => `${face.printed_name ?? face.name}\n${face.printed_text ?? face.oracle_text ?? ''}`).join('\n\n')) ?? '', artist: card.artist ?? firstFace?.artist ?? '',
+    power: card.power ?? firstFace?.power ?? '', toughness: card.toughness ?? firstFace?.toughness ?? '', loyalty: card.loyalty ?? firstFace?.loyalty ?? '', defense: card.defense ?? firstFace?.defense ?? ''
   };
   if (!includeImages) return result;
   const getFace = (urls: typeof frontImages) => [urls?.display, urls?.large, urls?.jpeg, urls?.normal, urls?.png, urls?.grid];
-  const [front, back, art] = await Promise.allSettled([
+  const [front, back, art, backArt] = await Promise.allSettled([
     image(getFace(frontImages), card.name),
     image(getFace(backImages), card.name),
-    editable ? image([frontImages?.art, frontImages?.art_crop], card.name) : undefined
+    image([frontImages?.art, frontImages?.art_crop], card.name),
+    image([backImages?.art, backImages?.art_crop], card.name)
   ]);
   result.images = {
     front: front.status === 'fulfilled' ? front.value : undefined,
     back: back.status === 'fulfilled' ? back.value : undefined,
     art: art.status === 'fulfilled' ? art.value : undefined,
+    backArt: backArt.status === 'fulfilled' ? backArt.value : undefined,
     error: front.status === 'rejected'
       ? (front.reason instanceof Error ? errorMessage(front.reason, locale) : translate(locale, 'scryfallDownloadFailed')).slice(0, 300)
       : undefined
