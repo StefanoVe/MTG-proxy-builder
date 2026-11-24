@@ -1,0 +1,36 @@
+<div id="fade-example">
+  <div class="views">
+    <div><div class="label">Originale</div><canvas id="fade-original" width="350" height="480" aria-label="Illustrazione originale di esempio"></canvas></div>
+    <div><div class="label">Ombra e blur progressivi</div><canvas id="fade-result" width="350" height="480" aria-label="Illustrazione con effetto progressivo nella metà inferiore"></canvas></div>
+  </div>
+  <div class="text-small text-muted">L’area dell’effetto occupa la metà inferiore; la linea tratteggiata ne indica il limite.</div>
+</div>
+<style>
+#fade-example .views {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;max-width:620px}
+#fade-example canvas {width:100%;height:auto;display:block;border-radius:6px}
+#fade-example .label {margin-bottom:6px;font-weight:500}
+#fade-example .text-small {margin-top:8px}
+</style>
+<script>
+(() => {
+  const root = document.getElementById('fade-example');
+  const original = root.querySelector('#fade-original');
+  const result = root.querySelector('#fade-result');
+  const w=350,h=480, c=original.getContext('2d');
+  const sky=c.createLinearGradient(0,0,0,h);sky.addColorStop(0,'#e6bd83');sky.addColorStop(.55,'#769497');sky.addColorStop(1,'#223e3d');c.fillStyle=sky;c.fillRect(0,0,w,h);
+  c.fillStyle='#fff2c9';c.beginPath();c.arc(265,92,37,0,Math.PI*2);c.fill();
+  function mountain(points,color){c.fillStyle=color;c.beginPath();c.moveTo(0,h);for(const [x,y] of points)c.lineTo(x,y);c.lineTo(w,h);c.closePath();c.fill()}
+  mountain([[0,235],[75,126],[135,216],[202,145],[350,256]],'#839899');
+  mountain([[0,290],[90,203],[162,275],[246,183],[350,285]],'#4d7273');
+  mountain([[0,345],[72,274],[154,330],[258,252],[350,325]],'#304f4d');
+  c.fillStyle='#c7a779';c.beginPath();c.moveTo(128,480);c.lineTo(193,480);c.lineTo(227,302);c.lineTo(216,302);c.closePath();c.fill();
+  for(let i=0;i<29;i++){let x=(i*73+17)%350,y=255+(i*47)%210,s=9+(i*13)%25;c.fillStyle=i%2?'#193d36':'#284d3e';c.fillRect(x-2,y,4,s*1.5);c.beginPath();c.moveTo(x,y-s);c.lineTo(x-s*.45,y+s*.45);c.lineTo(x+s*.45,y+s*.45);c.fill()}
+  const out=result.getContext('2d');out.drawImage(original,0,0);
+  const layer=document.createElement('canvas');layer.width=w;layer.height=h;const l=layer.getContext('2d');
+  const intensity=t=>{const held=1-(1-t)**7;return held*held*(3-2*held)};
+  function gradient(step){let g=l.createLinearGradient(0,h/2,0,h);for(let i=0;i<=96;i++){let a=intensity(i/96);if(step!==undefined){let f=Math.max(0,Math.min(1,a*6-step));a=f*f*(3-2*f)}g.addColorStop(i/96,`rgba(255,255,255,${a})`)}return g}
+  for(let step=0;step<6;step++){l.clearRect(0,0,w,h);l.filter=`blur(${(step+1)*2}px)`;l.drawImage(original,0,0);l.filter='none';l.globalCompositeOperation='destination-in';l.fillStyle=gradient(step);l.fillRect(0,h/2,w,h/2);l.globalCompositeOperation='source-over';out.drawImage(layer,0,0)}
+  let shade=out.createLinearGradient(0,h/2,0,h);for(let i=0;i<=96;i++)shade.addColorStop(i/96,`rgba(20,24,32,${intensity(i/96)*.65})`);out.fillStyle=shade;out.fillRect(0,h/2,w,h/2);
+  out.save();out.setLineDash([6,5]);out.strokeStyle='rgba(255,255,255,.85)';out.lineWidth=1;out.beginPath();out.moveTo(0,h/2);out.lineTo(w,h/2);out.stroke();out.restore();
+})();
+</script>

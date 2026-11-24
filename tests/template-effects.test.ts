@@ -48,7 +48,8 @@ test('full-art shading fades smoothly and symmetrically at both edges', () => {
   assert.equal(alpha(gradients[0][0][1]), 255);
   assert.equal(alpha(gradients[0][96][1]), 0);
   assert.equal(alpha(gradients[0][1][1]), 255);
-  assert.equal(alpha(gradients[0][95][1]), 0);
+  assert.ok(alpha(gradients[0][95][1]) <= 5);
+  assert.ok(alpha(gradients[0][72][1]) > 230, 'effect remains strong across most of its extent');
   for (let i = 0; i <= 96; i++) assert.equal(alpha(gradients[0][i][1]), alpha(gradients[1][96 - i][1]));
 });
 

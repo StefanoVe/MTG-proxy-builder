@@ -46,7 +46,9 @@ function wash(ctx: CanvasRenderingContext2D, template: Template, appearance: Tem
     for (let i = 0; i <= 96; i++) {
       const position = i / 96;
       const distance = top ? 1 - position : position;
-      const intensity = distance * distance * (3 - 2 * distance);
+      // Keep the effect visible farther into the art while easing to zero at its boundary.
+      const held = 1 - (1 - distance) ** 7;
+      const intensity = held * held * (3 - 2 * held);
       const fraction = blurStep === undefined ? intensity : Math.max(0, Math.min(1, intensity * 6 - blurStep));
       const opacity = blurStep === undefined ? fraction : fraction * fraction * (3 - 2 * fraction);
       gradient.addColorStop(position, tinted(opacity));
