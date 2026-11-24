@@ -2,7 +2,7 @@ import type { SVGProps } from 'react';
 import {
   ArrowDownTrayIcon, ArrowPathIcon, ArrowUturnLeftIcon, Bars3BottomLeftIcon,
   BookmarkSquareIcon, ChartBarIcon, CircleStackIcon, DocumentTextIcon,
-  MagnifyingGlassIcon, MagnifyingGlassPlusIcon, NewspaperIcon, PhotoIcon,
+  MagnifyingGlassIcon, MagnifyingGlassPlusIcon, NewspaperIcon, PencilIcon, PhotoIcon,
   PlusIcon, PrinterIcon, AdjustmentsHorizontalIcon, ArrowUpIcon, ArrowDownIcon, QueueListIcon, RectangleStackIcon, Square2StackIcon,
   TagIcon, TrashIcon, ViewfinderCircleIcon, XMarkIcon
 } from '@heroicons/react/24/outline';
@@ -20,6 +20,7 @@ const icons = {
   add: PlusIcon,
   remove: TrashIcon,
   card: DocumentTextIcon,
+  edit: PencilIcon,
   art: PhotoIcon,
   close: XMarkIcon,
   edition: NewspaperIcon,

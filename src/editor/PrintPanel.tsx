@@ -2,7 +2,7 @@ import { errorMessage } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
 import { useMemo, useState } from 'react';
 import type { Project, PrintSettings } from '../shared/model.js';
-import { withProjectTemplate } from '../shared/templates.js';
+import { projectCards } from '../shared/templates.js';
 import { cardHeight, cardWidth, cutSegments, papers, printSheets } from '../shared/print.js';
 import { Preview } from './Preview.js';
 
@@ -16,8 +16,8 @@ export function PrintPanel({ project, onExport, onBusy }: { project: Project; on
   const count = project.cards.reduce((sum, card) => sum + card.count, 0);
   const limit = 1500;
   const sheets = useMemo(() => count <= limit
-    ? printSheets(project.cards.map(card => withProjectTemplate(card, project.templateAppearances)), settings)
-    : [], [count, project.cards, project.templateAppearances, settings]);
+    ? printSheets(projectCards(project), settings)
+    : [], [count, project, settings]);
   const current = Math.min(index, Math.max(0, sheets.length - 1));
   const sheet = sheets[current];
   const working = progress !== null;

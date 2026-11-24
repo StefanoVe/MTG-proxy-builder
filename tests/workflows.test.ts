@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { blankCard, createCard, createProject, defaultZones, projectSchema } from '../src/shared/model.ts';
+import { blankCard, createCard, createProject, defaultZones, isCardModified, projectSchema } from '../src/shared/model.ts';
 import type { Asset, Card, FrameSet } from '../src/shared/model.ts';
 import { colorFrameLayers, colorsForFrame } from '../src/shared/frame-colors.ts';
 import { matchBatch, parseDeck } from '../src/shared/deck.ts';
 import { cardWidth, cardHeight, mmToPt, papers, printSheets } from '../src/shared/print.ts';
-import { newTemplate, templateAppearance, withProjectTemplate } from '../src/shared/templates.ts';
+import { newTemplate, projectCards, templateAppearance, withProjectTemplate } from '../src/shared/templates.ts';
 
 const options = { paper: 'A4', cut: true, backs: true } as const;
 const image = 'a'.repeat(64);
@@ -33,6 +33,52 @@ test('batch uses catalog identity, normalizes accents and protects edits and amb
   assert.equal(rows[1].cardId, sol.id);
   assert.equal(matchBatch([asset('Forest.png')], [card('Forest'), card('Forest')], 'art')[0].cardId, '');
   assert.equal(matchBatch([asset('Forest.png')], [{ ...card('Forest'), frame: { kind: 'classic', tone: 'auto' } }], 'frame')[0].accept, false);
+});
+
+test('deck rows distinguish card customizations from catalog data and copy counts', () => {
+  const original = createCard({ ...blankCard, printingId: 'catalog-id', name: 'Lightning Bolt',
+    details: { printedName: 'Fulmine', rarity: 'common', lang: 'it', flavor: '', faces: [] }, images: { art: image } }, 4);
+  assert.equal(isCardModified(original), false);
+  assert.equal(isCardModified(card('Carta vuota')), false);
+  assert.equal(isCardModified({ ...original, zoneOverrides: {}, dividerOverrides: {} }), false);
+
+  const customizations: Partial<Card>[] = [
+    { fields: { ...original.fields, rules: 'Pesca una carta.' } },
+    { art: image },
+    { crop: { ...original.crop, zoom: 2 } },
+    { frame: { kind: 'printing', artZone: defaultZones.art } },
+    { frame: { kind: 'modern', tone: 'auto' } },
+    { frame: newTemplate('full-art') },
+    { zoneOverrides: { art: defaultZones.art } },
+    { dividerOverrides: { divider: false } }
+  ];
+  const project = { ...createProject(), cards: customizations.map(change => ({ ...original, ...change })) };
+  const reopened = projectSchema.parse(JSON.parse(JSON.stringify(project)));
+  assert.deepEqual(reopened.cards.map(isCardModified), customizations.map(() => true));
+});
+
+test('a project frame preserves individual card modification status', () => {
+  const untouched = createCard({ ...blankCard, printingId: 'catalog-id', name: 'Lightning Bolt' });
+  const customized = { ...card('Carta personalizzata'), art: image };
+  const project = { ...createProject(), cards: [untouched, customized], frame: newTemplate('full-art') };
+
+  assert.deepEqual(projectCards(project).map(item => item.frame.kind), ['template', 'template']);
+  assert.deepEqual(project.cards.map(isCardModified), [false, true]);
+});
+
+test('the saved project frame applies to new cards and preserves cards that require scans', () => {
+  const original = createCard({ ...blankCard, printingId: 'catalog-card', images: { front: image } });
+  const special = createCard({ ...blankCard, printingId: 'double-sided', editable: false, images: { front: image, back: image } });
+  const preset = { id: crypto.randomUUID(), name: 'Cornice PNG', asset: image, zones: defaultZones, textColor: '#fff8ea', fontFamily: 'Georgia' };
+  const project = projectSchema.parse(JSON.parse(JSON.stringify({
+    ...createProject(), cards: [original, special], presets: [preset], frame: { kind: 'preset', id: preset.id }
+  })));
+  const added = card('Nuova carta');
+  const [first, second, third] = projectCards({ ...project, cards: [...project.cards, added] });
+  assert.deepEqual(first.frame, { kind: 'custom', asset: image, zones: defaultZones, textColor: '#fff8ea', fontFamily: 'Georgia' });
+  assert.deepEqual(third.frame, first.frame);
+  assert.equal(second, project.cards[1]);
+  assert.deepEqual(projectCards({ ...project, frame: undefined })[0].frame, original.frame);
 });
 
 test('A4 and Letter print at standard dimensions with matching duplex pages', () => {

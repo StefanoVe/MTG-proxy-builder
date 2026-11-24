@@ -31,3 +31,28 @@ export function withProjectTemplate(card: Card, appearances: Project['templateAp
   const appearance = appearances?.[card.frame.template];
   return appearance ? { ...card, frame: { ...card.frame, appearance } } : card;
 }
+
+export function projectFrame(project: Project): Card['frame'] | undefined {
+  const frame = project.frame;
+  if (frame?.kind === 'color-set') {
+    const set = project.frameSets?.find(item => item.id === frame.id);
+    return set && { kind: 'color-set', set };
+  }
+  if (frame?.kind === 'preset') {
+    const preset = project.presets.find(item => item.id === frame.id);
+    if (!preset) return;
+    const { asset, zones, textColor, fontFamily } = preset;
+    return { kind: 'custom', asset, zones, textColor, fontFamily };
+  }
+  if (frame?.kind === 'template' && !frame.appearance) return newTemplate(frame.template, project.fullArtBase);
+  return frame;
+}
+
+export function withProjectFrame(card: Card, project: Project, frame = projectFrame(project)): Card {
+  return withProjectTemplate(frame && card.source.editable ? { ...card, frame } : card, project.templateAppearances);
+}
+
+export function projectCards(project: Project, cards = project.cards): Card[] {
+  const frame = projectFrame(project);
+  return cards.map(card => frame ? withProjectFrame(card, project, frame) : withProjectTemplate(card, project.templateAppearances));
+}

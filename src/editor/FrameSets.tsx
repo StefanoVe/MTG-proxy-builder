@@ -57,7 +57,7 @@ export function FrameSets({ sets, active, count, save }: {
     setBusy(true);
     const zone = existing ? undefined : await pngArtZone(parsed.data.C).catch(() => undefined);
     const zones = existing?.zones ?? { ...defaultZones, ...(zone ? { art: zone } : {}) };
-    save({ id: id || crypto.randomUUID(), name: name.trim(), assets: parsed.data, mix, zones }, apply && count > 0);
+    save({ ...existing, id: id || crypto.randomUUID(), name: name.trim(), assets: parsed.data, mix, zones }, apply && count > 0);
   }
 
   return <form className="frame-set-form" onSubmit={event => { event.preventDefault(); void submit(); }}>

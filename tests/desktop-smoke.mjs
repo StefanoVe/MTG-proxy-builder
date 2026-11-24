@@ -125,7 +125,7 @@ try {
   await page.locator('.source').getByText('Magic 2011').waitFor();
   await page.getByRole('button', { name: 'Cornice', exact: true }).click();
   await electron.evaluate(() => globalThis.setSmokeFiles('frame'));
-  await page.getByRole('button', { name: 'Gestisci set di cornici' }).click();
+  await page.getByRole('button', { name: 'Set di cornici', exact: true }).click();
   await page.getByLabel('Nome del set').fill('Cornici prova');
   for (const color of ['Bianco', 'Blu', 'Nero', 'Rosso', 'Verde', 'Incolore']) {
     await page.getByRole('button', { name: 'Carica ' + color, exact: true }).click();
@@ -135,6 +135,13 @@ try {
   await page.getByRole('button', { name: 'Salva e applica' }).click();
   await page.getByText('Set salvato e applicato').waitFor();
   await page.getByText('Cornice applicata · Rosso').waitFor();
+  const projectFrame = page.locator('.deck').getByLabel('Cornice del progetto');
+  await projectFrame.selectOption('import');
+  await page.waitForFunction(() => document.querySelector('.deck-controls select')?.value === 'custom');
+  await page.getByText('Questa carta usa la cornice del progetto.', { exact: false }).waitFor();
+  await projectFrame.selectOption('');
+  await page.getByText('Cornice applicata · Rosso').waitFor();
+  await projectFrame.selectOption('full-art');
   await page.getByRole('button', { name: 'Importa lista', exact: true }).click();
   await page.getByLabel('Lista delle carte').fill('99 Sole // Luna\n1 Non esiste');
   await page.getByRole('button', { name: 'Importa carte' }).click();
@@ -148,6 +155,7 @@ try {
   await page.getByText('Modificata 1 carta').waitFor();
   await page.getByRole('button', { name: 'Annulla ultima modifica' }).click();
   await page.getByText('Modifica annullata').waitFor();
+  assert.equal(await projectFrame.inputValue(), 'full-art');
   await page.getByRole('button', { name: 'Stampa', exact: true }).click();
   await page.screenshot({ path: join(paths, 'print-choices.png') });
   await page.getByRole('button', { name: 'Carte singole' }).click();
@@ -183,6 +191,7 @@ try {
   electron = await launch();
   page = await electron.firstWindow();
   await page.getByRole('heading', { name: 'Lightning Bolt', exact: true }).waitFor();
+  assert.equal(await page.locator('.deck').getByLabel('Cornice del progetto').inputValue(), 'full-art');
   await page.waitForFunction(() => document.querySelector('canvas')?.width === 744);
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
   await page.getByRole('button', { name: 'Foglio di stampa' }).click();

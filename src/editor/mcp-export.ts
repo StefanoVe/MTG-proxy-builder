@@ -1,13 +1,13 @@
 import type { Project } from '../shared/model.js';
 import type { ExportRequest } from '../shared/mcp-export.js';
 import { cardArchiveLimit, cardArchiveMaxBytes, printSheets } from '../shared/print.js';
-import { withProjectTemplate } from '../shared/templates.js';
+import { projectCards } from '../shared/templates.js';
 import { createCardArchive } from './card-archive.js';
 import { imageFaces, imageGeometry } from './card-images.js';
 import { createPdf } from './pdf.js';
 
 async function renderExport(project: Project, request: ExportRequest) {
-  const cards = project.cards.map(card => withProjectTemplate(card, project.templateAppearances));
+  const cards = projectCards(project);
   if (!cards.length) throw new Error('Il progetto è vuoto.');
   if (request.format === 'pdf') {
     if (cards.reduce((sum, card) => sum + card.count, 0) > 1500) {

@@ -1,10 +1,10 @@
 import type { Locale, MessageKey } from '../shared/i18n.js';
 import { errorMessage, LocalizedError } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
-import { templateAppearance, withProjectTemplate } from '../shared/templates.js';
+import { projectCards, projectFrame, templateAppearance, withProjectFrame } from '../shared/templates.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { blankCard, createCard, createProject, defaultCrop } from '../shared/model.js';
+import { blankCard, createCard, createProject, defaultCrop, defaultZones, isCardModified } from '../shared/model.js';
 import type { Card, DeckEntry, FrameSet, Printing, Project, Rect, Template, TemplateAppearance, Zones } from '../shared/model.js';
 import { parseDeckRows } from '../shared/deck.js';
 import { loadDeckCards } from '../shared/deck-import.js';
@@ -18,10 +18,14 @@ import { PrintChoices } from './PrintChoices.js';
 import { CardExportPanel } from './CardExportPanel.js';
 import { Icon } from './Icon.js';
 import { TemplateEditor } from './TemplateEditor.js';
+import { ProjectFrameSelect } from './ProjectFrameSelect.js';
+import { pngArtZone } from './compose.js';
 
 type Panel = 'deck' | 'batch' | 'print' | 'sheet' | 'cards' | 'printings' | 'frames' | 'frame-sets' | 'templates';
-const usesArt = (card: Card) => card.frame.kind === 'template' || card.frame.kind === 'color-set';
-const imageKey = (card: Card) => `${card.id}/${card.source.printingId}/${usesArt(card) ? 'art' : 'scan'}`;
+const usesArt = (card: Card) => card.source.editable && card.frame.kind !== 'printing';
+const imageKey = (projectId: string, card: Card) => `${projectId}/${card.id}/${card.source.printingId}/${usesArt(card) ? 'art' : 'scan'}`;
+const needsImages = (card: Card) => !!card.source.printingId && (usesArt(card)
+  ? !(card.art || card.source.images.art) : !card.source.images.front);
 
 function Dialog({ title, children, close, busy, wide, back }: {
   title: string; children: ReactNode; close: () => void; busy: boolean; wide?: boolean; back?: () => void;
@@ -43,6 +47,10 @@ function Dialog({ title, children, close, busy, wide, back }: {
 const titles: Record<Panel, MessageKey> = { deck: 'importList', batch: 'batchEdit', print: 'print', sheet: 'exportPdf', cards: 'individualCards', printings: 'chooseEdition', frames: 'chooseFrame', 'frame-sets': 'frameSets', templates: 'projectFrameEditor' };
 
 function projectTemplate(project: Project, template: Template, active?: Card) {
+  const sharedFrame = projectFrame(project);
+  if (sharedFrame?.kind === 'template' && sharedFrame.template === template) {
+    return templateAppearance({ ...sharedFrame, appearance: project.templateAppearances?.[template] ?? sharedFrame.appearance });
+  }
   const frame = active?.frame;
   const selectedAppearance = frame?.kind === 'template' && frame.template === template ? frame.appearance : undefined;
   const legacyFrame = project.cards.find(card =>
@@ -86,8 +94,12 @@ export function App() {
   const revision = useRef(0);
   const lastHistory = useRef(0);
   const card = project?.cards.find(item => item.id === active) ?? project?.cards[0];
-  const appearances = project?.templateAppearances;
-  const renderedCard = useMemo(() => card && withProjectTemplate(card, appearances), [card, appearances]);
+  const sharedFrame = project ? projectFrame(project) : undefined;
+  const renderedCard = useMemo(() => card && project ? withProjectFrame(card, project) : undefined, [card, project]);
+  const needsDownload = (item: Card) => !!project && needsImages(item) && !attemptedImages.current.has(imageKey(project.id, item));
+  const nextImageCard = renderedCard && needsDownload(renderedCard) ? renderedCard
+    : project && sharedFrame ? projectCards(project).find(needsDownload) : undefined;
+  const loadingImages = !!nextImageCard || imageLoads.size > 0;
   const editedAppearance = useMemo(() => panel === 'templates' && project
     ? projectTemplate(project, template, card) : undefined, [panel, project, template, card]);
 
@@ -131,7 +143,7 @@ export function App() {
         if (!panel && history.length && !typing) { event.preventDefault(); undo(); }
       } else if (event.key === '/' && !typing && !panel) {
         event.preventDefault(); searchRef.current?.focus();
-      } else if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !panel && project?.cards.length && !busy && !imageLoads.size) {
+      } else if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !panel && project?.cards.length && !busy && !loadingImages) {
         event.preventDefault(); setError(''); setPanel('print');
       } else if (event.key === 'Escape' && !panel && target === document.body) {
         setSelected(new Set());
@@ -139,7 +151,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [history, panel, project, busy, imageLoads.size]);
+  }, [history, panel, project, busy, loadingImages]);
 
   function persist(next: Project) {
     const current = ++revision.current;
@@ -205,7 +217,9 @@ export function App() {
   }
 
   async function loadPrintingImages(card: Card) {
-    const key = imageKey(card);
+    const projectId = live.current?.id;
+    if (!projectId) return;
+    const key = imageKey(projectId, card);
     attemptedImages.current.add(key);
     setImageLoads(loads => new Set(loads).add(key));
     let images: Card['source']['images'];
@@ -222,7 +236,7 @@ export function App() {
     }
 
     const current = live.current;
-    if (!current?.cards.some(item => item.id === card.id && item.source.printingId === card.source.printingId)) return;
+    if (!current || current.id !== projectId || !current.cards.some(item => item.id === card.id && item.source.printingId === card.source.printingId)) return;
     const next = { ...current, cards: current.cards.map(item => item.id === card.id
       ? { ...item, source: { ...item.source, images: {
         front: images.front ?? item.source.images.front, back: images.back ?? item.source.images.back,
@@ -234,12 +248,8 @@ export function App() {
   }
 
   useEffect(() => {
-    if (!card?.source.printingId) return;
-    const needsImage = usesArt(card) ? !(card.art || card.source.images.art) : !card.source.images.front;
-    if (!needsImage) return;
-    const key = imageKey(card);
-    if (!attemptedImages.current.has(key)) void loadPrintingImages(card);
-  }, [card]);
+    if (nextImageCard && !imageLoads.size && needsDownload(nextImageCard)) void loadPrintingImages(nextImageCard);
+  }, [nextImageCard, imageLoads.size]);
 
   async function lookup(printing?: Printing) {
     if (busy || (!printing && !query.trim())) return;
@@ -308,6 +318,23 @@ export function App() {
     }
   }
 
+  function changeProjectFrame(frame: Project['frame']) {
+    commit(value => ({ ...value, frame }));
+    setZone(undefined);
+    setBack(false);
+  }
+
+  function importProjectFrame() {
+    void action(async () => {
+      const { assets, errors } = await window.proxy.images('single', true);
+      if (errors.length) setError(errors.join('\n'));
+      const asset = assets[0];
+      if (!asset) return;
+      const art = await pngArtZone(asset.id).catch(() => undefined);
+      changeProjectFrame({ kind: 'custom', asset: asset.id, zones: art ? { ...defaultZones, art } : defaultZones });
+    });
+  }
+
   function saveColorSet(set: FrameSet, applyTo: Card[] = [], group = false) {
     const selected = new Set(applyTo.filter(card => card.source.editable).map(card => card.id));
     commit(value => {
@@ -345,11 +372,11 @@ export function App() {
   }
 
   function changeZone(rect: Rect) {
-    if (!card || !zone) return;
-    if (card.frame.kind === 'printing' && zone === 'art') {
-      update(card.id, { frame: { ...card.frame, artZone: rect } }, true);
-    } else if (card.frame.kind !== 'printing') {
-      update(card.id, { zoneOverrides: { ...card.zoneOverrides, [zone]: rect } }, true);
+    if (!renderedCard || !zone) return;
+    if (renderedCard.frame.kind === 'printing' && zone === 'art') {
+      update(renderedCard.id, { frame: { ...renderedCard.frame, artZone: rect } }, true);
+    } else if (renderedCard.frame.kind !== 'printing') {
+      update(renderedCard.id, { zoneOverrides: { ...renderedCard.zoneOverrides, [zone]: rect } }, true);
     }
   }
 
@@ -397,7 +424,7 @@ export function App() {
   const total = project.cards.reduce((sum, item) => sum + item.count, 0);
   const selection = project.cards.filter(item => selected.has(item.id));
   const batchCards = selection.length ? selection : project.cards;
-  const loadingImage = !!card && imageLoads.has(imageKey(card));
+  const loadingImage = !!renderedCard && (imageLoads.has(imageKey(project.id, renderedCard)) || needsDownload(renderedCard));
   const catalogSearch = <div className="catalog-search">
     <form className="search" role="search" onSubmit={event => { event.preventDefault(); void lookup(); }}>
       <input ref={searchRef} type="search" aria-label={t('cardSearchName')} placeholder={t('cardSearchExample')} maxLength={300} value={query}
@@ -435,11 +462,14 @@ export function App() {
           <option value="it" lang="it">Italiano</option>
           <option value="en" lang="en">English</option>
         </select>
-        <button className="icon-label" disabled={busy} onClick={() => editTemplate(card?.frame.kind === 'template' ? card.frame.template : 'full-art')}>
+        <button className="icon-label" disabled={busy} onClick={() => {
+          const frame = sharedFrame ?? renderedCard?.frame;
+          editTemplate(frame?.kind === 'template' ? frame.template : 'full-art');
+        }}>
           <Icon name="settings" /><span>{t('frameEditor')}</span>
         </button>
         <button className="icon-button" aria-label={t('frameSets')} title={t('frameSets')} disabled={busy} onClick={manageFrameSets}><Icon name="frames" /></button>
-        <button className="icon-label primary" aria-label={t('print')} title={t('printShortcut')} disabled={!project.cards.length || busy || !!imageLoads.size} onClick={() => { setError(''); setPanel('print'); }}><Icon name="print" /><span>{t('print')}</span></button>
+        <button className="icon-label primary" aria-label={t('print')} title={t('printShortcut')} disabled={!project.cards.length || busy || loadingImages} onClick={() => { setError(''); setPanel('print'); }}><Icon name="print" /><span>{t('print')}</span></button>
       </div>
     </header>
     <div className="columns">
@@ -452,6 +482,7 @@ export function App() {
               event.target.value = name;
               if (name !== project.name) commit(value => ({ ...value, name }));
             }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
+          <ProjectFrameSelect project={project} disabled={busy} change={changeProjectFrame} importFrame={importProjectFrame} />
           {card && catalogSearch}
           <div className="deck-add">
             <button className="icon-label" onClick={() => { setError(''); setDeckErrors([]); setPanel('deck'); }} aria-label={t('importList')} disabled={busy}><Icon name="import" /><span>{t('importList')}</span></button>
@@ -472,19 +503,25 @@ export function App() {
             </div>
           </div>
           <ul className="deck-list">
-            {project.cards.map(item => <li key={item.id} className={item.id === card?.id ? 'active' : ''}>
-              <input type="checkbox" aria-label={t('selectCard', { name: item.fields.name })} checked={selected.has(item.id)} onChange={() => toggleSelected(item.id)} />
-              <button className="card-row" aria-current={item.id === card?.id ? 'true' : undefined} onClick={() => activate(item.id)}>
-                <strong>{item.fields.name || t('untitledCard')}</strong>
-                <small>{item.source.set ? `${item.source.set.toUpperCase()} · ${item.source.number}` : t('customCard')}</small>
-              </button>
-              <input type="number" aria-label={t('cardQuantity', { name: item.fields.name })} key={item.count} min={1} max={999} defaultValue={item.count}
-                onBlur={event => {
-                  const count = Math.trunc(event.target.valueAsNumber);
-                  if (count >= 1 && count <= 999 && count !== item.count) update(item.id, { count });
-                  else event.target.value = String(item.count);
-                }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
-            </li>)}
+            {project.cards.map(item => {
+              const modified = isCardModified(item) ? t('modifiedCard') : undefined;
+              return <li key={item.id} className={item.id === card?.id ? 'active' : ''}>
+                <input type="checkbox" aria-label={t('selectCard', { name: item.fields.name })} checked={selected.has(item.id)} onChange={() => toggleSelected(item.id)} />
+                <button className="card-row" aria-current={item.id === card?.id ? 'true' : undefined} aria-description={modified} onClick={() => activate(item.id)}>
+                  <span className="card-row-title">
+                    <strong>{item.fields.name || t('untitledCard')}</strong>
+                    {modified && <span className="card-modified" title={modified} aria-hidden="true"><Icon name="edit" size={13} /></span>}
+                  </span>
+                  <small>{item.source.set ? `${item.source.set.toUpperCase()} · ${item.source.number}` : t('customCard')}</small>
+                </button>
+                <input type="number" aria-label={t('cardQuantity', { name: item.fields.name })} key={item.count} min={1} max={999} defaultValue={item.count}
+                  onBlur={event => {
+                    const count = Math.trunc(event.target.valueAsNumber);
+                    if (count >= 1 && count <= 999 && count !== item.count) update(item.id, { count });
+                    else event.target.value = String(item.count);
+                  }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
+              </li>;
+            })}
           </ul>
         </>}
       </aside>
@@ -499,21 +536,21 @@ export function App() {
           if (file.size > 32 * 1024 * 1024) throw new LocalizedError('imageSize');
           const asset = await window.proxy.dropped(new Uint8Array(await file.arrayBuffer()), file.name, false);
           update(card.id, { art: asset.id, crop: defaultCrop });
-          if (card.frame.kind === 'printing') setZone(undefined);
+          if (renderedCard?.frame.kind === 'printing') setZone(undefined);
         });
       }}>
-        {card ? <>
+        {card && renderedCard ? <>
           <div className="stage-heading">
             <h1 title={card.fields.name || undefined}>{card.fields.name || t('untitledCard')}</h1>
           </div>
           <div className="stage-sheet">
-            {usesArt(card) && loadingImage && !(card.art || card.source.images.art) ? (
+            {usesArt(renderedCard) && loadingImage && !(card.art || card.source.images.art) ? (
               <p className="missing-printing" role="status">{t('loadingArt')}</p>
-            ) : card.frame.kind === 'printing' && !card.source.images.front ? <div className="missing-printing">
+            ) : !usesArt(renderedCard) && !card.source.images.front ? <div className="missing-printing">
               <p role="status">{loadingImage ? t('loadingScan') : card.source.images.error ?? t('scanUnavailable')}</p>
-              {!loadingImage && <button onClick={() => void loadPrintingImages(card)}>{t('retryLoading')}</button>}
-            </div> : <Preview card={renderedCard ?? card} back={back} showThirds zone={zone} onZone={changeZone}
-              onCrop={card.source.editable && !back && (card.frame.kind !== 'printing' || !!card.art) ? crop => update(card.id, { crop }, true) : undefined} />}
+              {!loadingImage && <button onClick={() => void loadPrintingImages(renderedCard)}>{t('retryLoading')}</button>}
+            </div> : <Preview card={renderedCard} back={back} showThirds zone={zone} onZone={changeZone}
+              onCrop={card.source.editable && !back && (renderedCard.frame.kind !== 'printing' || !!card.art) ? crop => update(card.id, { crop }, true) : undefined} />}
           </div>
           {card.source.editable && <button className={`image-dropzone${draggingImage ? ' dragging' : ''}`} disabled={busy} onClick={() => void selectAssets(false).then(image => {
             if (image) update(card.id, { art: image.id, crop: defaultCrop });
@@ -532,11 +569,11 @@ export function App() {
           {catalogSearch}
         </div>}
       </main>
-      {card ? <Inspector key={card.id} card={card} renderedCard={renderedCard ?? card} presets={project.presets} frameSets={project.frameSets ?? []}
+      {card && renderedCard ? <Inspector key={card.id} card={card} renderedCard={renderedCard} sharedFrame={!!sharedFrame} presets={project.presets} frameSets={project.frameSets ?? []}
         systemFonts={systemFonts}
-        manageFrameSets={manageFrameSets} editFrameSet={set => saveColorSet(set, [], true)} update={patch => update(card.id, patch, true)}
-        selectAssets={selectAssets} choosePrinting={() => choosePrinting('printings')} chooseFrames={() => choosePrinting('frames')} zone={zone} selectZone={setZone}
-        fullArtBase={project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase} editTemplate={editTemplate}
+        editFrameSet={set => saveColorSet(set, [], true)} update={patch => update(card.id, patch, true)}
+        selectAssets={selectAssets} choosePrinting={() => choosePrinting('printings')} zone={zone} selectZone={setZone}
+        fullArtBase={project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase}
         savePreset={name => {
           if (card.frame.kind !== 'custom') return;
           const { asset, zones, textColor, fontFamily } = card.frame;
@@ -559,7 +596,7 @@ export function App() {
       }}>
       {error && <p className="error" role="alert">{error}</p>}
       {panel === 'templates' && editedAppearance && <TemplateEditor template={template} selectTemplate={selectTemplate}
-        appearance={editedAppearance} activeCard={card} cards={project.cards} fonts={systemFonts} change={changeTemplate}
+        appearance={editedAppearance} activeCard={renderedCard} cards={projectCards(project)} fonts={systemFonts} change={changeTemplate}
         saving={saving} saveError={saveError} retry={() => persist(project)} />}
       {panel === 'deck' && <>
         <div className="dialog-tools">
@@ -576,19 +613,19 @@ export function App() {
           <button className="primary" disabled={busy || !deckText.trim()} onClick={importDeck}>{t('importCards')}</button>
         </div>
       </>}
-      {panel === 'batch' && <Batch cards={batchCards} presets={project.presets} fullArtBase={project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase} frameSets={project.frameSets ?? []} close={() => setPanel(undefined)} apply={updates => {
+      {panel === 'batch' && <Batch cards={batchCards} sharedFrame={!!sharedFrame} presets={project.presets} fullArtBase={project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase} frameSets={project.frameSets ?? []} close={() => setPanel(undefined)} apply={updates => {
         const map = new Map(updates.map(item => [item.id, item]));
         commit(value => ({ ...value, cards: value.cards.map(item => map.get(item.id) ?? item) }));
         setNotice({ key: updates.length === 1 ? 'changedCardsOne' : 'changedCards', count: updates.length }); setPanel(undefined);
       }} />}
-      {panel === 'frame-sets' && <FrameSets sets={project.frameSets ?? []} active={card?.frame.kind === 'color-set' ? card.frame.set.id : undefined}
-        count={batchCards.filter(item => item.source.editable).length} save={(set, apply) => {
+      {panel === 'frame-sets' && <FrameSets sets={project.frameSets ?? []} active={sharedFrame?.kind === 'color-set' ? sharedFrame.set.id : renderedCard?.frame.kind === 'color-set' ? renderedCard.frame.set.id : undefined}
+        count={sharedFrame ? 0 : batchCards.filter(item => item.source.editable).length} save={(set, apply) => {
           saveColorSet(set, apply ? batchCards : []);
           setZone(undefined);
           setPanel(undefined);
           setNotice({ key: apply ? 'setSavedApplied' : 'setSaved' });
         }} />}
-      {panel === 'print' && <PrintChoices cards={project.cards.slice(0, 9).map(item => withProjectTemplate(item, project.templateAppearances))} choose={setPanel} />}
+      {panel === 'print' && <PrintChoices cards={projectCards(project, project.cards.slice(0, 9))} choose={setPanel} />}
       {panel === 'cards' && <CardExportPanel project={project} onBusy={setBusy} onExport={() => {
         setNotice({ key: 'zipSaved' }); setPanel(undefined);
       }} />}

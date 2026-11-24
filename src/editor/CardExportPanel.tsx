@@ -2,7 +2,7 @@ import { errorMessage, LocalizedError } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Card, Project } from '../shared/model.js';
-import { withProjectTemplate } from '../shared/templates.js';
+import { projectCards } from '../shared/templates.js';
 import { cardArchiveLimit } from '../shared/print.js';
 import { drawCardImage, imageFaces, imageGeometry } from './card-images.js';
 import type { Bleed, BleedFill, ImageFormat } from './card-images.js';
@@ -93,9 +93,7 @@ export function CardExportPanel({ project, onBusy, onExport }: {
     const margin = Math.round(geometry.margin * width / geometry.width);
     return { width, height, margin, totalWidth: width + 2 * margin, totalHeight: height + 2 * margin };
   }, [geometry]);
-  const faces = useMemo(() => imageFaces(
-    project.cards.map(card => withProjectTemplate(card, project.templateAppearances)), backs
-  ), [project.cards, project.templateAppearances, backs]);
+  const faces = useMemo(() => imageFaces(projectCards(project), backs), [project, backs]);
   const total = faces.reduce((sum, { card }) => sum + (copies ? card.count : 1), 0);
   const hasBacks = project.cards.some(card => !!card.source.images.back);
 

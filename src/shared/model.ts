@@ -82,6 +82,15 @@ export const frameSetSchema = z.object({
 export type FrameColor = typeof frameColors[number];
 export type FrameSet = z.infer<typeof frameSetSchema>;
 
+const builtInFrameSchema = z.object({ kind: z.enum(['modern', 'classic']), tone: z.enum(tones) });
+const templateFrameSchema = z.object({ kind: z.literal('template'), template: templateSchema, appearance: templateAppearanceSchema.optional() });
+const customFrameSchema = z.object({ kind: z.literal('custom'), asset: assetId, zones: zonesSchema, textColor: hexColor.optional(), fontFamily: fontFamilySchema.optional() });
+const projectFrameSchema = z.discriminatedUnion('kind', [
+  builtInFrameSchema, templateFrameSchema, customFrameSchema,
+  z.object({ kind: z.literal('color-set'), id: uuid }),
+  z.object({ kind: z.literal('preset'), id: uuid })
+]);
+
 export const cardSchema = z.object({
   id: uuid, count: z.number().int().min(1).max(999), source: cardDataSchema,
   fields: cardDataSchema.pick({ name: true, mana: true, type: true, rules: true, artist: true, power: true, toughness: true, loyalty: true, defense: true }),
@@ -90,11 +99,11 @@ export const cardSchema = z.object({
   dividerOverrides: z.object({ titleDivider: z.boolean().optional(), divider: z.boolean().optional() }).optional(),
   crop: z.object({ x: z.number().min(-1).max(1), y: z.number().min(-1).max(1), zoom: z.number().min(1).max(5) }),
   frame: z.discriminatedUnion('kind', [
-    z.object({ kind: z.enum(['modern', 'classic']), tone: z.enum(tones) }),
+    builtInFrameSchema,
     z.object({ kind: z.literal('printing'), artZone: rect.optional() }),
-    z.object({ kind: z.literal('template'), template: templateSchema, appearance: templateAppearanceSchema.optional() }),
+    templateFrameSchema,
     z.object({ kind: z.literal('color-set'), set: frameSetSchema }),
-    z.object({ kind: z.literal('custom'), asset: assetId, zones: zonesSchema, textColor: hexColor.optional(), fontFamily: fontFamilySchema.optional() })
+    customFrameSchema
   ])
 });
 export const presetSchema = z.object({ id: uuid, name: z.string().trim().min(1).max(100), asset: assetId, zones: zonesSchema,
@@ -102,6 +111,7 @@ export const presetSchema = z.object({ id: uuid, name: z.string().trim().min(1).
 export const projectSchema = z.object({
   version: z.literal(1), id: uuid, name: z.string().min(1).max(100),
   cards: z.array(cardSchema).max(1500), presets: z.array(presetSchema).max(200),
+  frame: projectFrameSchema.optional(),
   fullArtBase: templateAppearanceSchema.optional(),
   templateAppearances: z.partialRecord(templateSchema, templateAppearanceSchema).optional(),
   frameSets: z.array(frameSetSchema).max(200).optional()
@@ -158,6 +168,19 @@ export function createCard(source: CardData, count = 1): Card {
     id: crypto.randomUUID(), count, source, fields: printingFields(source),
     frame: source.printingId ? { kind: 'printing' } : { kind: 'modern', tone: 'auto' }, crop: defaultCrop
   };
+}
+
+export function isCardModified(card: Card): boolean {
+  const { frame, crop } = card;
+  const defaultFrame = card.source.printingId
+    ? frame.kind === 'printing' && !frame.artZone
+    : frame.kind === 'modern' && frame.tone === 'auto';
+  if (!defaultFrame || card.art || crop.x !== defaultCrop.x || crop.y !== defaultCrop.y || crop.zoom !== defaultCrop.zoom
+    || Object.values(card.zoneOverrides ?? {}).some(value => value !== undefined)
+    || Object.values(card.dividerOverrides ?? {}).some(value => value !== undefined)) return true;
+
+  const originalFields = printingFields(card.source);
+  return (Object.keys(originalFields) as (keyof Card['fields'])[]).some(key => card.fields[key] !== originalFields[key]);
 }
 
 export function createProject(name = 'Mazzo senza titolo'): Project {

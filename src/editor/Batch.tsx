@@ -7,8 +7,8 @@ import type { Card, FrameSet, Preset, TemplateAppearance } from '../shared/model
 import { hasOverride, matchBatch } from '../shared/deck.js';
 import type { BatchRow } from '../shared/deck.js';
 
-export function Batch({ cards, presets, frameSets, fullArtBase, apply, close }: {
-  cards: Card[]; presets: Preset[]; frameSets: FrameSet[]; fullArtBase?: TemplateAppearance; apply: (cards: Card[]) => void; close: () => void;
+export function Batch({ cards, sharedFrame, presets, frameSets, fullArtBase, apply, close }: {
+  cards: Card[]; sharedFrame: boolean; presets: Preset[]; frameSets: FrameSet[]; fullArtBase?: TemplateAppearance; apply: (cards: Card[]) => void; close: () => void;
 }) {
   const { t, locale } = useI18n();
   const [kind, setKind] = useState<'art' | 'preset'>('art');
@@ -25,11 +25,11 @@ export function Batch({ cards, presets, frameSets, fullArtBase, apply, close }: 
   const presetCards = eligible.filter(card => overwrite || !hasOverride(card, 'frame'));
   const chosenPreset = presets.find(item => item.id === preset);
   const chosenSet = frameSets.find(item => item.id === preset);
-  const sharedFrame: Card['frame'] | undefined = isTemplate(preset) ? newTemplate(preset, fullArtBase)
+  const chosenFrame: Card['frame'] | undefined = isTemplate(preset) ? newTemplate(preset, fullArtBase)
     : chosenSet ? { kind: 'color-set', set: chosenSet }
     : chosenPreset ? { kind: 'custom', asset: chosenPreset.asset, zones: chosenPreset.zones,
       textColor: chosenPreset.textColor, fontFamily: chosenPreset.fontFamily } : undefined;
-  const count = kind === 'preset' ? (sharedFrame ? presetCards.length : 0) : selected.length;
+  const count = kind === 'preset' ? (chosenFrame ? presetCards.length : 0) : selected.length;
 
   async function load(mode: 'files' | 'folder') {
     if (kind === 'preset') return;
@@ -52,7 +52,7 @@ export function Batch({ cards, presets, frameSets, fullArtBase, apply, close }: 
   function submit() {
     if (!count || collisions) return;
     if (kind === 'preset') {
-      if (sharedFrame) apply(presetCards.map(card => ({ ...card, frame: sharedFrame })));
+      if (chosenFrame) apply(presetCards.map(card => ({ ...card, frame: chosenFrame })));
       return;
     }
     const map = new Map(selected.map(row => [row.cardId, row.asset]));
@@ -70,7 +70,7 @@ export function Batch({ cards, presets, frameSets, fullArtBase, apply, close }: 
         setKind(event.target.value as typeof kind); setRows([]); setErrors([]);
       }}>
         <option value="art">{t('matchArtByName')}</option>
-        <option value="preset">{t('oneFrameForAll')}</option>
+        {!sharedFrame && <option value="preset">{t('oneFrameForAll')}</option>}
       </select></label>
       {kind !== 'preset' && <div className="button-group">
         <button disabled={loading} onClick={() => void load('files')}>{t('chooseFiles')}</button>

@@ -94,10 +94,11 @@ label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 }
 .deck, .inspector { min-width: 0; min-height: 0; background: var(--rail); }
 .deck { display: flex; flex-direction: column; border-right: 1px solid var(--rule); }
+.deck > :not(.deck-list) { flex-shrink: 0; }
 .inspector { display: flex; flex-direction: column; border-left: 1px solid var(--rule); }
 .panel-title { display: flex; align-items: center; justify-content: space-between; padding: 16px; }
 .panel-title span { font-variant-numeric: tabular-nums; font-size: 12px; }
-.deck-controls { padding: 0 16px 16px; display: grid; gap: 8px; min-height: 0; }
+.deck-controls { padding: 0 16px 16px; display: grid; gap: 8px; }
 .deck-add { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .deck-add button { padding-inline: 5px; }
 .search { display: flex; gap: 4px; }
@@ -139,6 +140,8 @@ label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   border: 1px solid transparent;
 }
 .card-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.card-row-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.card-modified { display: flex; flex: none; color: var(--muted); }
 .deck-list input[type="number"] { min-height: 30px; padding: 4px 2px 4px 6px; font-variant-numeric: tabular-nums; }
 .stage {
   position: relative;
