@@ -38,24 +38,24 @@ function wash(ctx: CanvasRenderingContext2D, template: Template, appearance: Tem
   }
   extent = Math.min(max, extent);
   if (extent <= 0) return false;
-  const y = top ? edge : edge - extent;
   const tinted = (opacity: number) => color + Math.round(opacity * strength * 255).toString(16).padStart(2, '0');
   if (template === 'full-art') {
-    const gradient = ctx.createLinearGradient(0, y * height / 100, 0, (y + extent) * height / 100);
-    // Smooth both ends of the transition so it joins the untouched art without a visible edge.
+    // Let the transition continue beyond the selected boundary, clipped by the card.
+    const transitionExtent = extent * 1.35;
+    const y = top ? edge : edge - transitionExtent;
+    const gradient = ctx.createLinearGradient(0, y * height / 100, 0, (y + transitionExtent) * height / 100);
     for (let i = 0; i <= 96; i++) {
       const position = i / 96;
       const distance = top ? 1 - position : position;
-      // Keep the effect visible farther into the art while easing to zero at its boundary.
-      const held = 1 - (1 - distance) ** 7;
-      const intensity = held * held * (3 - 2 * held);
+      const intensity = distance * distance * (3 - 2 * distance);
       const fraction = blurStep === undefined ? intensity : Math.max(0, Math.min(1, intensity * 6 - blurStep));
       const opacity = blurStep === undefined ? fraction : fraction * fraction * (3 - 2 * fraction);
       gradient.addColorStop(position, tinted(opacity));
     }
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, y * height / 100, width, extent * height / 100);
+    ctx.fillRect(0, y * height / 100, width, transitionExtent * height / 100);
   } else {
+    const y = top ? edge : edge - extent;
     const rect = templateBox({ ...panel, y, h: extent }, width, height);
     ctx.beginPath();
     ctx.roundRect(rect.x, rect.y, rect.w, rect.h, radius);

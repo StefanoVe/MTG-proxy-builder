@@ -591,10 +591,10 @@ export function App() {
             <h1 title={card.fields.name || undefined}>{card.fields.name || t('untitledCard')}</h1>
           </div>
           <div className={`stage-sheet${compare && card.source.printingId ? ' is-comparing' : ''}`}>
-            {card.source.printingId && <button className="compare-button" aria-pressed={compare} onClick={() => {
+            {card.source.printingId && <button className="icon-button compare-button" aria-label={t('compareOriginal')} title={t('compareOriginal')} aria-pressed={compare} onClick={() => {
               const next = !compare;
               setCompare(next);
-            }}>{t('compareOriginal')}</button>}
+            }}><Icon name="compare" /></button>}
             <div className="stage-current">
             {usesArt(renderedCard) && loadingImage && !(card.art || card.source.images.art) ? (
               <p className="missing-printing" role="status">{t('loadingArt')}</p>
