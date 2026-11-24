@@ -50,6 +50,7 @@ test('deck rows distinguish card customizations from catalog data and copy count
     { frame: { kind: 'modern', tone: 'auto' } },
     { frame: newTemplate('full-art') },
     { zoneOverrides: { art: defaultZones.art } },
+    { hiddenZones: ['title'] },
     { dividerOverrides: { divider: false } }
   ];
   const project = { ...createProject(), cards: customizations.map(change => ({ ...original, ...change })) };

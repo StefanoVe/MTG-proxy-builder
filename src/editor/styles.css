@@ -94,7 +94,12 @@ label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 }
 .deck, .inspector { min-width: 0; min-height: 0; background: var(--rail); }
 .deck { display: flex; flex-direction: column; border-right: 1px solid var(--rule); }
-.deck > :not(.deck-list) { flex-shrink: 0; }
+.columns.deck-collapsed { grid-template-columns: 54px minmax(0, 1fr) clamp(265px, 24vw, 348px); }
+.deck-title { gap: 8px; }
+.deck-title h2 { margin-right: auto; }
+.deck-collapsed .deck-title { padding: 8px; }
+.deck-content:not([hidden]) { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.deck-content > :not(.deck-list) { flex-shrink: 0; }
 .inspector { display: flex; flex-direction: column; border-left: 1px solid var(--rule); }
 .panel-title { display: flex; align-items: center; justify-content: space-between; padding: 16px; }
 .panel-title span { font-variant-numeric: tabular-nums; font-size: 12px; }

@@ -83,6 +83,7 @@ export function App() {
   const [draggingImage, setDraggingImage] = useState(false);
   const [query, setQuery] = useState('');
   const [listQuery, setListQuery] = useState('');
+  const [deckCollapsed, setDeckCollapsed] = useState(false);
   const [searchFeedback, setSearchFeedback] = useState<Error>();
   const [searching, setSearching] = useState(false);
   const [imageLoads, setImageLoads] = useState<Set<string>>(new Set());
@@ -475,9 +476,13 @@ export function App() {
         <button className="icon-label primary" aria-label={t('print')} title={t('printShortcut')} disabled={!project.cards.length || busy || loadingImages} onClick={() => { setError(''); setPanel('print'); }}><Icon name="print" /><span>{t('print')}</span></button>
       </div>
     </header>
-    <div className="columns">
+    <div className={`columns${deckCollapsed ? ' deck-collapsed' : ''}`}>
       <aside className="deck">
-        <div className="panel-title"><h2>{t('deck')}</h2><span className="muted">{t(total === 1 ? 'copyCountOne' : 'copyCount', { count: total })}</span></div>
+        <div className="panel-title deck-title">
+          {!deckCollapsed && <><h2>{t('deck')}</h2><span className="muted">{t(total === 1 ? 'copyCountOne' : 'copyCount', { count: total })}</span></>}
+          <button className="icon-button" aria-label={t(deckCollapsed ? 'expandDeck' : 'collapseDeck')} title={t(deckCollapsed ? 'expandDeck' : 'collapseDeck')} aria-expanded={!deckCollapsed} aria-controls="deck-content" onClick={() => setDeckCollapsed(value => !value)}><Icon name={deckCollapsed ? 'expand' : 'collapse'} /></button>
+        </div>
+        <div id="deck-content" className="deck-content" hidden={deckCollapsed}>
         <div className="deck-controls">
           <input aria-label={t('projectName')} key={`${project.id}/${project.name}`} defaultValue={project.name} maxLength={100}
             onBlur={event => {
@@ -533,6 +538,7 @@ export function App() {
           </ul>
           {!visibleCards.length && <p className="deck-list-empty" role="status">{t('noAddedCardsFound')}</p>}
         </>}
+        </div>
       </aside>
       <main className="stage" onDragOver={event => { if (card?.source.editable && event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDraggingImage(true); } }} onDragLeave={event => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingImage(false);

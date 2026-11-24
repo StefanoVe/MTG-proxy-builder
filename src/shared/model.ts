@@ -96,6 +96,7 @@ export const cardSchema = z.object({
   fields: cardDataSchema.pick({ name: true, mana: true, type: true, rules: true, artist: true, power: true, toughness: true, loyalty: true, defense: true }),
   art: assetId.optional(),
   zoneOverrides: zonesSchema.partial().optional(),
+  hiddenZones: z.array(z.enum(['art', 'title', 'type', 'rules', 'stats'])).optional(),
   dividerOverrides: z.object({ titleDivider: z.boolean().optional(), divider: z.boolean().optional() }).optional(),
   crop: z.object({ x: z.number().min(-1).max(1), y: z.number().min(-1).max(1), zoom: z.number().min(1).max(5) }),
   frame: z.discriminatedUnion('kind', [
@@ -176,6 +177,7 @@ export function isCardModified(card: Card): boolean {
     ? frame.kind === 'printing' && !frame.artZone
     : frame.kind === 'modern' && frame.tone === 'auto';
   if (!defaultFrame || card.art || crop.x !== defaultCrop.x || crop.y !== defaultCrop.y || crop.zoom !== defaultCrop.zoom
+    || (card.hiddenZones?.length ?? 0) > 0
     || Object.values(card.zoneOverrides ?? {}).some(value => value !== undefined)
     || Object.values(card.dividerOverrides ?? {}).some(value => value !== undefined)) return true;
 

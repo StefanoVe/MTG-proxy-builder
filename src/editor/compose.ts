@@ -206,7 +206,18 @@ function framedPrinting(ctx: CanvasRenderingContext2D, scan: HTMLImageElement, a
 export async function compose(canvas: HTMLCanvasElement, card: Card, back = false): Promise<{ warning?: MessageKey }> {
   const artId = card.art ?? card.source.images.art;
   const template = card.frame.kind === 'template' ? card.frame.template : undefined;
-  const appearance = card.frame.kind === 'template' ? { ...templateAppearance(card.frame), ...card.dividerOverrides, zones: cardZones(card) } : undefined;
+  const hidden = new Set(card.hiddenZones ?? []);
+  const baseAppearance = card.frame.kind === 'template' ? templateAppearance(card.frame) : undefined;
+  const effectHidden = (anchor: 'title' | 'type' | 'rules' | 'manual' | undefined, fallback: 'title' | 'rules') =>
+    anchor !== 'manual' && hidden.has(anchor ?? fallback);
+  const appearance = baseAppearance ? { ...baseAppearance, ...card.dividerOverrides, zones: cardZones(card),
+    titleBlur: effectHidden(baseAppearance.topEffect?.anchor, 'title') ? 0 : baseAppearance.titleBlur,
+    titleShade: effectHidden(baseAppearance.topEffect?.anchor, 'title') ? 0 : baseAppearance.titleShade,
+    rulesBlur: effectHidden(baseAppearance.bottomEffect?.anchor, 'rules') ? 0 : baseAppearance.rulesBlur,
+    rulesShade: effectHidden(baseAppearance.bottomEffect?.anchor, 'rules') ? 0 : baseAppearance.rulesShade,
+    titleDivider: hidden.has('title') ? false : card.dividerOverrides?.titleDivider ?? baseAppearance.titleDivider,
+    divider: hidden.has('rules') ? false : card.dividerOverrides?.divider ?? baseAppearance.divider
+  } : undefined;
   const set = card.frame.kind === 'color-set' ? card.frame.set : undefined;
   const frameId = card.frame.kind === 'custom' ? card.frame.asset : appearance?.overlay;
   const actualPrinting = card.frame.kind === 'printing' || !card.source.editable;
@@ -260,13 +271,15 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
       ctx.lineWidth = 3;
       ctx.strokeRect(31, 33, width - 62, height - 66);
     }
-    drawRect(ctx, { x: 37, y: 42, w: width - 74, h: 69 }, paper, classic ? 1 : 12, '#302b25');
-    drawRect(ctx, { x: 37, y: 623, w: width - 74, h: 64 }, paper, classic ? 1 : 10, '#302b25');
-    drawRect(ctx, { x: 37, y: 693, w: width - 74, h: 254 }, paper, classic ? 1 : 12, '#302b25');
-    if (stats) drawRect(ctx, box(zones.stats), paper, classic ? 1 : 12, '#302b25');
+    if (!hidden.has('title')) drawRect(ctx, { x: 37, y: 42, w: width - 74, h: 69 }, paper, classic ? 1 : 12, '#302b25');
+    if (!hidden.has('type')) drawRect(ctx, { x: 37, y: 623, w: width - 74, h: 64 }, paper, classic ? 1 : 10, '#302b25');
+    if (!hidden.has('rules')) drawRect(ctx, { x: 37, y: 693, w: width - 74, h: 254 }, paper, classic ? 1 : 12, '#302b25');
+    if (stats && !hidden.has('stats')) drawRect(ctx, box(zones.stats), paper, classic ? 1 : 12, '#302b25');
   }
-  drawRect(ctx, illustration, '#343b3d', 0);
-  if (art) artwork(ctx, art, illustration, card.crop);
+  if (!hidden.has('art')) {
+    drawRect(ctx, illustration, '#343b3d', 0);
+    if (art) artwork(ctx, art, illustration, card.crop);
+  }
   if (template && appearance) blurTemplateArt(ctx, template, appearance);
   if (overlay) ctx.drawImage(overlay, 0, 0, width, height);
   if (template && appearance) {
@@ -280,12 +293,12 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   const manaGap = 4;
   const diameter = Math.min(41, title.h * 0.78, (title.w * 0.62 - manaGap * Math.max(0, mana.length - 1)) / Math.max(1, mana.length));
   const manaWidth = mana.length * diameter + manaGap * Math.max(0, mana.length - 1);
-  fitLine(ctx, card.fields.name, { ...title, w: title.w - manaWidth - (mana.length ? 10 : 0) }, 43, font, textColor);
-  mana.forEach((token, index) => drawSymbol(ctx, icons, token, title.x + title.w - manaWidth + index * (diameter + manaGap),
+  if (!hidden.has('title')) fitLine(ctx, card.fields.name, { ...title, w: title.w - manaWidth - (mana.length ? 10 : 0) }, 43, font, textColor);
+  if (!hidden.has('title')) mana.forEach((token, index) => drawSymbol(ctx, icons, token, title.x + title.w - manaWidth + index * (diameter + manaGap),
     title.y + (title.h - diameter) / 2, diameter, textColor));
-  fitLine(ctx, card.fields.type, box(zones.type), 32, font, textColor);
-  if (stats) fitLine(ctx, stats, box(zones.stats), 34, font, textColor, 'center');
-  const result = drawRules(ctx, card.fields.rules, box(zones.rules), textColor, icons, font);
+  if (!hidden.has('type')) fitLine(ctx, card.fields.type, box(zones.type), 32, font, textColor);
+  if (stats && !hidden.has('stats')) fitLine(ctx, stats, box(zones.stats), 34, font, textColor, 'center');
+  const result = hidden.has('rules') || drawRules(ctx, card.fields.rules, box(zones.rules), textColor, icons, font);
   if (template) {
     fitLine(ctx, card.fields.artist, { x: width * 0.06, y: height * 0.965, w: width * 0.88, h: 23 }, 19, font, textColor);
   } else if (!overlay) {
@@ -293,6 +306,6 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   } else {
     fitLine(ctx, card.fields.artist, { x: 26, y: height - 33, w: width - 52, h: 29 }, 20, font, textColor);
   }
-  if ((template || set) && !art) return { warning: 'addArtHelp' };
-  return result && (mana.length === 0 || diameter >= 7) ? {} : { warning: 'textOverflow' };
+  if ((template || set) && !art && !hidden.has('art')) return { warning: 'addArtHelp' };
+  return result && (hidden.has('title') || mana.length === 0 || diameter >= 7) ? {} : { warning: 'textOverflow' };
 }

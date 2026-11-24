@@ -259,6 +259,14 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, re
         </fieldset>}
 
         {!original && <>
+          <fieldset className="template-settings">
+            <legend>{t('visibleSections')}</legend>
+            {(Object.keys(zoneLabels) as Array<keyof Zones>).map(key => <label className="check" key={key}>
+              <input type="checkbox" checked={!card.hiddenZones?.includes(key)} onChange={event => update({
+                hiddenZones: event.target.checked ? (card.hiddenZones ?? []).filter(item => item !== key) : [...(card.hiddenZones ?? []), key]
+              })} />{t(zoneLabels[key])}
+            </label>)}
+          </fieldset>
           <label>{t('elementPositions')}<select value={zone ?? ''} onChange={event => selectZone((event.target.value || undefined) as keyof Zones | undefined)}>
             <option value="">{t('hideGuides')}</option>
             {(Object.keys(zoneLabels) as Array<keyof Zones>).map(key => <option key={key} value={key}>{t(zoneLabels[key])}</option>)}
