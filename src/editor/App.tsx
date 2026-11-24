@@ -7,6 +7,7 @@ import type { ReactNode } from 'react';
 import { assetURL, blankCard, cardSide, createCard, createProject, defaultCrop, defaultZones, isCardModified, rebaseBackSide, sideOrientation, sideState } from '../shared/model.js';
 import type { Card, DeckEntry, FrameSet, Printing, Project, Rect, Template, TemplateAppearance, Zones } from '../shared/model.js';
 import { matchesCardSearch, parseDeckRows } from '../shared/deck.js';
+import { cardsWithSharedArt } from '../shared/shared-art.js';
 import { loadDeckCards } from '../shared/deck-import.js';
 import { FrameSets } from './FrameSets.js';
 import { FrameGallery } from './FrameGallery.js';
@@ -91,6 +92,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [draggingImage, setDraggingImage] = useState(false);
   const [query, setQuery] = useState('');
+  const [searchRevision, setSearchRevision] = useState(0);
   const [listQuery, setListQuery] = useState('');
   const [deckCollapsed, setDeckCollapsed] = useState(false);
   const [searchFeedback, setSearchFeedback] = useState<Error>();
@@ -287,22 +289,35 @@ export function App() {
     }
   }, [compare, renderedCard, back, imageLoads.size]);
 
-  async function lookup(printing?: Printing) {
-    if (busy || (!printing && !query.trim())) return;
+  useEffect(() => {
+    const name = query.trim();
+    let current = true;
+    setChoices([]);
+    setSearchFeedback(undefined);
+    if (!name) return () => { current = false; };
+    const timer = window.setTimeout(() => {
+      void window.proxy.search(name).then(result => {
+        if (!current) return;
+        const options = [...(result.exact ? [result.exact] : []), ...result.choices];
+        setChoices(options);
+        if (!options.length) setSearchFeedback(new LocalizedError('noCardsFound'));
+      }).catch(cause => {
+        if (current) setSearchFeedback(cause instanceof Error ? cause : new Error(String(cause)));
+      });
+    }, 350);
+    return () => { current = false; window.clearTimeout(timer); };
+  }, [query, searchRevision]);
+
+  async function lookup(printing: Printing) {
+    if (busy) return;
     setSearchFeedback(undefined);
     setSearching(true);
     await action(async () => {
       try {
-        const result = printing ? { exact: printing, choices: [] } : await window.proxy.search(query.trim());
-        if (result.exact) {
-          const card = createCard(await window.proxy.card(result.exact.id, false));
-          addCards([card]);
-          setQuery('');
-          setChoices([]);
-        } else {
-          setChoices(result.choices);
-          if (!result.choices.length) setSearchFeedback(new LocalizedError('noCardsFound'));
-        }
+        const card = createCard(await window.proxy.card(printing.id, false));
+        addCards([card]);
+        setQuery('');
+        setChoices([]);
       } catch (cause) {
         setSearchFeedback(cause instanceof Error ? cause : new Error(String(cause)));
       }
@@ -461,9 +476,10 @@ export function App() {
   const selection = project.cards.filter(item => selected.has(item.id));
   const visibleCards = project.cards.filter(item => matchesCardSearch(item, listQuery, locale, t('untitledCard')));
   const batchCards = selection.length ? selection : project.cards;
+  const sharedArt = cardsWithSharedArt(project.cards);
   const loadingImage = !!renderedCard && (imageLoads.has(imageKey(project.id, renderedCard)) || needsDownload(renderedCard));
   const catalogSearch = <div className="catalog-search">
-    <form className="search" role="search" onSubmit={event => { event.preventDefault(); void lookup(); }}>
+    <form className="search" role="search" onSubmit={event => { event.preventDefault(); setSearchRevision(value => value + 1); }}>
       <input ref={searchRef} type="search" aria-label={t('cardSearchName')} placeholder={t('cardSearchExample')} maxLength={300} value={query}
         autoFocus={!card} disabled={searching} onChange={event => {
           setQuery(event.target.value); setSearchFeedback(undefined); setChoices([]);
@@ -550,11 +566,13 @@ export function App() {
           <ul className="deck-list">
             {visibleCards.map(item => {
               const modified = isCardModified(item) ? t('modifiedCard') : undefined;
+              const shared = sharedArt.has(item.id) ? t('sharedArtwork') : undefined;
               return <li key={item.id} className={item.id === card?.id ? 'active' : ''}>
                 <input type="checkbox" aria-label={t('selectCard', { name: item.fields.name })} checked={selected.has(item.id)} onChange={() => toggleSelected(item.id)} />
-                <button className="card-row" aria-current={item.id === card?.id ? 'true' : undefined} aria-description={modified} onClick={() => activate(item.id)}>
+                <button className="card-row" aria-current={item.id === card?.id ? 'true' : undefined} aria-description={[modified, shared].filter(Boolean).join('. ') || undefined} onClick={() => activate(item.id)}>
                   <span className="card-row-title">
                     <strong>{item.fields.name || t('untitledCard')}</strong>
+                    {shared && <span className="card-shared-art" title={shared} aria-hidden="true"><Icon name="warning" size={15} /></span>}
                     {modified && <span className="card-modified" title={modified} aria-hidden="true"><Icon name="edit" size={13} /></span>}
                   </span>
                   <small>{item.source.set ? `${item.source.set.toUpperCase()} · ${item.source.number}` : t('customCard')}</small>

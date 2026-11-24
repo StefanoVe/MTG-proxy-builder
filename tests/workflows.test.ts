@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { cardsWithSharedArt } from '../src/shared/shared-art.ts';
 import { blankCard, cardSide, createCard, createProject, defaultZones, isCardModified, projectSchema, rebaseBackSide, sideOrientation, sideState } from '../src/shared/model.ts';
 import type { Asset, Card, FrameSet } from '../src/shared/model.ts';
 import { colorFrameLayers, colorsForFrame } from '../src/shared/frame-colors.ts';
@@ -231,4 +232,24 @@ test('print bleed fits within the page without overlap and keeps duplex trim ali
       }
     }
   }
+});
+
+
+test('shared artwork identifies different cards, including back faces and overrides', () => {
+  const first = card('First', 3);
+  const second = card('Second');
+  const third = card('Third');
+  for (const item of [first, second, third]) item.source = { ...item.source, images: {} };
+  first.art = image;
+  second.source.images.art = image;
+  third.source.images.art = image;
+  third.art = 'b'.repeat(64);
+  assert.deepEqual(cardsWithSharedArt([first, second, third]), new Set([first.id, second.id]));
+  second.art = 'c'.repeat(64);
+  assert.equal(cardsWithSharedArt([first, second, third]).size, 0);
+  third.source.images.back = 'd'.repeat(64);
+  third.source.images.backArt = image;
+  third.backSide = sideState({ ...third, art: image });
+  assert.deepEqual(cardsWithSharedArt([first, second, third]), new Set([first.id, third.id]));
+  assert.equal(cardsWithSharedArt([third]).size, 0);
 });

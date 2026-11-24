@@ -46,6 +46,7 @@ export const messages = {
   removeSelected: ["Rimuovi selezionate", "Remove selected"],
   untitledCard: ["Carta senza titolo", "Untitled card"],
   customCard: ["Carta personalizzata", "Custom card"],
+  sharedArtwork: ["Immagine usata anche in altre carte", "Artwork also used on other cards"],
   modifiedCard: ["Carta modificata", "Modified card"],
   imageSize: ["L’immagine supera 32 MB.", "The image exceeds 32 MB."],
   loadingArt: ["Caricamento dell’illustrazione…", "Loading artwork…"],

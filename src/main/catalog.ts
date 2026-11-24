@@ -74,24 +74,25 @@ function printing(card: ScryCard): Printing {
     : ['2003', '2015'].includes(card.frame ?? '') ? 'modern' : 'other';
   const images = card.image_uris ?? card.card_faces?.[0]?.image_uris;
   const thumbnail = images?.thumb ?? images?.small;
-  return { id: card.id, name: card.printed_name ?? card.name, set: card.set, setName: card.set_name,
+  return { id: card.id, name: card.card_faces?.length && card.name.includes(' // ') ? card.name : card.printed_name ?? card.name, set: card.set, setName: card.set_name,
     number: card.collector_number, lang: card.lang, style,
     thumbnail: thumbnail?.startsWith('https://cards.scryfall.io/') ? thumbnail : undefined };
 }
 
 export async function search(name: string) {
   const exact = await request('/cards/named?exact=' + encodeURIComponent(name));
+  let exactPrinting: Printing | undefined;
   if (exact) {
     const card = scryCard.parse(exact);
     if (!card.digital) {
       rememberCard(card);
-      return { exact: printing(card), choices: [] };
+      exactPrinting = printing(card);
     }
   }
-  const suggestions = await request('/cards/autocomplete?q=' + encodeURIComponent(name));
+  const suggestions = await request('/cards/autocomplete?include_extras=true&q=' + encodeURIComponent(name));
   const names = z.object({ data: z.array(z.string()) }).parse(suggestions ?? { data: [] }).data.slice(0, 15);
   const found = await resolveDeck(names.map(name => ({ name, count: 1 })));
-  return { choices: found.filter(candidate => candidate !== null) };
+  return { exact: exactPrinting, choices: found.filter(candidate => candidate !== null && candidate.id !== exactPrinting?.id) };
 }
 
 export async function printings(id: string) {
