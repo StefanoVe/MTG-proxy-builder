@@ -15,8 +15,11 @@ const profile = join(root, 'profile');
 const executable = process.env.MTG_SMOKE_EXECUTABLE;
 const transport = new StdioClientTransport({
   command: executable ? resolve(executable) : require('electron'),
-  args: [...(executable ? [] : ['.']), '--mcp', `--user-data-dir=${profile}`]
+  args: [...(executable ? [] : ['.']), '--mcp', `--user-data-dir=${profile}`],
+  env: process.platform === 'win32' ? { ELECTRON_NO_ATTACH_CONSOLE: '1' } : undefined,
+  stderr: 'pipe'
 });
+transport.stderr?.pipe(process.stderr, { end: false });
 const client = new Client({ name: 'mtg-mcp-smoke', version: '1.0.0' });
 const protocolErrors = [];
 client.onerror = error => protocolErrors.push(error);
