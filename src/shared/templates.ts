@@ -1,4 +1,4 @@
-import type { Card, Project, Template, TemplateAppearance, Zones } from './model.js';
+import type { Card, FrameTextArea, Preset, Project, Template, TemplateAppearance, Zones } from './model.js';
 import { cardSide, sideState } from './model.ts';
 
 const templateZones: Record<Template, Zones> = {
@@ -15,12 +15,27 @@ const templateZones: Record<Template, Zones> = {
 };
 
 export type TemplateFrame = Extract<Card['frame'], { kind: 'template' }>;
+export type CustomFrame = Extract<Card['frame'], { kind: 'custom' | 'color-set' }>;
+export const defaultFrameTextSizes: Record<FrameTextArea, number> = { title: 43, type: 32, rules: 31, stats: 34, artist: 19 };
+export const defaultFrameTextAlign = (area: FrameTextArea) => area === 'stats' ? 'center' : 'left';
 
 export function templateAppearance(frame: TemplateFrame): TemplateAppearance {
   return frame.appearance ? { ...frame.appearance, fontFamily: frame.appearance.fontFamily ?? 'Georgia' } : {
     zones: templateZones[frame.template], textColor: '#fff8ea', fontFamily: 'Georgia', divider: true,
     titleShade: 0.96, rulesShade: 0.96
   };
+}
+
+export function customFrameAppearance(zones: Zones, textColor = '#24211e', fontFamily = 'Georgia'): TemplateAppearance {
+  return { zones, textColor, fontFamily, divider: false, titleShade: 0, rulesShade: 0 };
+}
+
+export function frameAppearance(frame: TemplateFrame | CustomFrame): TemplateAppearance;
+export function frameAppearance(frame: Card['frame']): TemplateAppearance | undefined;
+export function frameAppearance(frame: Card['frame']): TemplateAppearance | undefined {
+  if (frame.kind === 'template') return templateAppearance(frame);
+  const custom = frame.kind === 'color-set' ? frame.set : frame.kind === 'custom' ? frame : undefined;
+  return custom && (custom.appearance ?? customFrameAppearance(custom.zones, custom.textColor, custom.fontFamily));
 }
 
 export function newTemplate(template: Template, fullArtBase?: TemplateAppearance): TemplateFrame {
@@ -33,6 +48,10 @@ export function withProjectTemplate(card: Card, appearances: Project['templateAp
   return appearance ? { ...card, frame: { ...card.frame, appearance } } : card;
 }
 
+export function presetFrame({ asset, zones, textColor, fontFamily, appearance }: Preset): Extract<CustomFrame, { kind: 'custom' }> {
+  return { kind: 'custom', asset, zones, textColor, fontFamily, ...(appearance && { appearance }) };
+}
+
 export function projectFrame(project: Project): Card['frame'] | undefined {
   const frame = project.frame;
   if (frame?.kind === 'color-set') {
@@ -42,8 +61,7 @@ export function projectFrame(project: Project): Card['frame'] | undefined {
   if (frame?.kind === 'preset') {
     const preset = project.presets.find(item => item.id === frame.id);
     if (!preset) return;
-    const { asset, zones, textColor, fontFamily } = preset;
-    return { kind: 'custom', asset, zones, textColor, fontFamily };
+    return presetFrame(preset);
   }
   if (frame?.kind === 'template' && !frame.appearance) return newTemplate(frame.template, project.fullArtBase);
   return frame;

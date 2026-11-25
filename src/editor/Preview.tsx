@@ -9,7 +9,7 @@ import { compose } from './compose.js';
 import { drawCardImage, imageGeometry, sheetImage } from './card-images.js';
 import type { PrintSettings } from '../shared/model.js';
 
-export function Preview({ card, back = false, showThirds = false, onCrop, zone, guide, onZone, hideWarning, bleedSettings, sheet = false }: {
+export function Preview({ card, back = false, showThirds = false, onCrop, zone, guide, onZone, hideWarning, hideArtworkWarning, bleedSettings, sheet = false }: {
   card: Card;
   bleedSettings?: PrintSettings;
   sheet?: boolean;
@@ -19,6 +19,7 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
   zone?: keyof Zones;
   guide?: Rect;
   hideWarning?: boolean;
+  hideArtworkWarning?: boolean;
   onZone?: (rect: Rect) => void;
 }) {
   const { t, locale } = useI18n();
@@ -90,6 +91,7 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
         <span className="zone-resize" aria-hidden="true" />
       </div>}
     </div>
-    {warning && <span className="preview-warning" role="status">{errorMessage(warning, locale)}</span>}
+    {warning && !(hideArtworkWarning && warning instanceof LocalizedError && warning.key === 'addArtHelp')
+      && <span className="preview-warning" role="status">{errorMessage(warning, locale)}</span>}
   </div>;
 }

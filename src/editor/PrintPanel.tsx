@@ -1,32 +1,73 @@
 import { Select } from './Select.js';
-import { errorMessage } from '../shared/i18n.js';
+import { errorMessage, LocalizedError } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Project, PrintSettings } from '../shared/model.js';
 import { projectCards } from '../shared/templates.js';
 import { bleedMm, cardHeight, cardWidth, cutSegments, papers, printSheets } from '../shared/print.js';
+import { imageFaces } from './card-images.js';
+import { compose } from './compose.js';
 import { Preview } from './Preview.js';
 
-export function PrintPanel({ project, onExport, onBusy }: { project: Project; onExport: () => void; onBusy: (value: boolean) => void }) {
+type Faces = ReturnType<typeof imageFaces>;
+type Issue = Faces[number] & { cause: unknown };
+export type PrintDraft = { settings: PrintSettings; customMm: string; pageIndex: number };
+
+export function PrintPanel({ project, initialDraft, onExport, onBusy, onOpenCard }: {
+  project: Project;
+  initialDraft?: PrintDraft;
+  onExport: () => void;
+  onBusy: (value: boolean) => void;
+  onOpenCard: (id: string, back: boolean, draft: PrintDraft) => void;
+}) {
   const { t, locale } = useI18n();
-  const [settings, setSettings] = useState<PrintSettings>({ paper: 'A4', cut: true, backs: true });
-  const [customMm, setCustomMm] = useState('3');
+  const [settings, setSettings] = useState<PrintSettings>(initialDraft?.settings ?? { paper: 'A4', cut: true, backs: true });
+  const [customMm, setCustomMm] = useState(initialDraft?.customMm ?? '3');
   const valid = settings.bleed !== 'custom' || (customMm !== '' && Number.isFinite(Number(customMm)) && Number(customMm) >= 0 && Number(customMm) <= 10);
   const margin = valid ? bleedMm(settings) : 0;
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(initialDraft?.pageIndex ?? 0);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [preflight, setPreflight] = useState<{ faces: Faces; issues: Issue[] }>();
   const [paperW, paperH] = papers[settings.paper];
   const count = project.cards.reduce((sum, card) => sum + card.count, 0);
   const limit = 1500;
-  const sheets = useMemo(() => count <= limit
-    ? printSheets(projectCards(project), settings)
-    : [], [count, project, settings]);
+  const cards = useMemo(() => count <= limit ? projectCards(project) : [], [count, project]);
+  const sheets = useMemo(() => printSheets(cards, settings), [cards, settings]);
+  const faces = useMemo(() => imageFaces(cards, settings.backs), [cards, settings.backs]);
+  const issues = preflight?.faces === faces ? preflight.issues : undefined;
+  const firstIssue = issues?.[0];
+  const checking = faces.length > 0 && issues === undefined;
   const current = Math.min(index, Math.max(0, sheets.length - 1));
   const sheet = sheets[current];
   const working = progress !== null;
+  const canExport = sheets.length > 0 && issues?.length === 0 && valid && !working;
+
+  useEffect(() => {
+    if (!faces.length) return;
+    let cancelled = false;
+    async function checkCards() {
+      const canvas = document.createElement('canvas');
+      const issues: Issue[] = [];
+      // Check each card face once, regardless of how many copies appear in the PDF.
+      for (const [index, face] of faces.entries()) {
+        try {
+          const { warning } = await compose(canvas, face.card, face.back);
+          if (warning) issues.push({ ...face, cause: new LocalizedError(warning) });
+        } catch (cause) {
+          issues.push({ ...face, cause });
+        }
+        if ((index + 1) % 8 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+        if (cancelled) return;
+      }
+      setPreflight({ faces, issues });
+    }
+    void checkCards();
+    return () => { cancelled = true; };
+  }, [faces]);
 
   async function exportPdf() {
+    if (!canExport) return;
     onBusy(true);
     setError('');
     setProgress(0);
@@ -43,6 +84,15 @@ export function PrintPanel({ project, onExport, onBusy }: { project: Project; on
   }
 
   return <>
+    {checking && <p className="muted" role="status">{t('checkingPdfCards')}</p>}
+    {firstIssue && <div className="print-preflight">
+      <p className="error" role="alert">{t('pdfCardsNeedAttention')}</p>
+      <ul className="error messages">{issues.map(({ card, back, cause }) => <li key={`${card.id}/${back}`}>
+        <strong>{card.fields.name || t('untitledCard')}</strong> · {t(back ? 'back' : 'front')} · {errorMessage(cause, locale)}
+      </li>)}</ul>
+      <button type="button" disabled={working}
+        onClick={() => onOpenCard(firstIssue.card.id, firstIssue.back, { settings, customMm, pageIndex: current })}>{t('openFirstPdfIssue')}</button>
+    </div>}
     <div className="print-panel">
       <div className="print-options">
         <label>{t('paper')}<Select disabled={working} value={settings.paper} onChange={event => setSettings({ ...settings, paper: event.target.value as PrintSettings['paper'] })}>
@@ -80,7 +130,7 @@ export function PrintPanel({ project, onExport, onBusy }: { project: Project; on
         <div className="paper" aria-label={t('sheetPreview')} style={{ aspectRatio: `${paperW} / ${paperH}` }}>
           {sheet.slots.map(({ card, x, y }, slot) => <div key={`${current}/${slot}`} className="paper-card" style={{
             left: `${(x - margin) / paperW * 100}%`, top: `${(y - margin) / paperH * 100}%`, width: `${(cardWidth + 2 * margin) / paperW * 100}%`, height: `${(cardHeight + 2 * margin) / paperH * 100}%`
-          }}><Preview card={card} back={sheet.back} bleedSettings={settings} sheet /></div>)}
+          }}><Preview card={card} back={sheet.back} bleedSettings={settings} hideWarning sheet /></div>)}
           {settings.cut && sheet.slots.flatMap(({ x, y }) => cutSegments(x, y)).map(([x1, y1, x2, y2], i) => <i key={i} className="cut" style={{
             left: `${x1 / paperW * 100}%`, top: `${y1 / paperH * 100}%`,
             width: x1 === x2 ? '1px' : `${(x2 - x1) / paperW * 100}%`, height: y1 === y2 ? '1px' : `${(y2 - y1) / paperH * 100}%`
@@ -89,7 +139,7 @@ export function PrintPanel({ project, onExport, onBusy }: { project: Project; on
       </div>}
     </div>
     <div className="dialog-actions">
-      <button className="primary" disabled={!sheets.length || working || !valid} onClick={() => void exportPdf()}>{t('savePdf')}</button>
+      <button className="primary" disabled={!canExport} onClick={() => void exportPdf()}>{t('savePdf')}</button>
     </div>
   </>;
 }

@@ -1,13 +1,17 @@
-import { manaFiles } from './mana-catalog.js';
+import { manaFiles } from './mana-catalog.ts';
 
 export const symbolPattern = /\{([^{}]+)\}/g;
 const signature = (name: string) => name.split('/').sort().join('/');
 const aliases = new Map(Object.keys(manaFiles).filter(name => name.includes('/'))
   .map(name => [signature(name), name]));
 
-export function manaFile(token: string) {
+export function manaSymbol(token: string) {
   const name = token.trim().toUpperCase();
-  const canonical = Object.hasOwn(manaFiles, name) ? name : aliases.get(signature(name));
+  return Object.hasOwn(manaFiles, name) ? name : aliases.get(signature(name));
+}
+
+export function manaFile(token: string) {
+  const canonical = manaSymbol(token);
   return canonical ? manaFiles[canonical] : undefined;
 }
 

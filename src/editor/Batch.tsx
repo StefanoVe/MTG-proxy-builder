@@ -1,15 +1,16 @@
 import { Select } from './Select.js';
 import { errorMessage } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
-import { newTemplate } from '../shared/templates.js';
+import { newTemplate, presetFrame } from '../shared/templates.js';
 import { useState } from 'react';
 import { assetURL, defaultCrop, isTemplate, templateNames } from '../shared/model.js';
 import type { Card, FrameSet, Preset, TemplateAppearance } from '../shared/model.js';
 import { hasOverride, matchBatch } from '../shared/deck.js';
 import type { BatchRow } from '../shared/deck.js';
 
-export function Batch({ cards, sharedFrame, presets, frameSets, fullArtBase, apply, close }: {
-  cards: Card[]; sharedFrame: boolean; presets: Preset[]; frameSets: FrameSet[]; fullArtBase?: TemplateAppearance; apply: (cards: Card[]) => void; close: () => void;
+export function Batch({ cards, selectionCount, hiddenSelectionCount, sharedFrame, presets, frameSets, fullArtBase, apply, close }: {
+  cards: Card[]; selectionCount: number; hiddenSelectionCount: number; sharedFrame: boolean; presets: Preset[]; frameSets: FrameSet[];
+  fullArtBase?: TemplateAppearance; apply: (cards: Card[]) => void; close: () => void;
 }) {
   const { t, locale } = useI18n();
   const [kind, setKind] = useState<'art' | 'preset'>('art');
@@ -28,8 +29,7 @@ export function Batch({ cards, sharedFrame, presets, frameSets, fullArtBase, app
   const chosenSet = frameSets.find(item => item.id === preset);
   const chosenFrame: Card['frame'] | undefined = isTemplate(preset) ? newTemplate(preset, fullArtBase)
     : chosenSet ? { kind: 'color-set', set: chosenSet }
-    : chosenPreset ? { kind: 'custom', asset: chosenPreset.asset, zones: chosenPreset.zones,
-      textColor: chosenPreset.textColor, fontFamily: chosenPreset.fontFamily } : undefined;
+    : chosenPreset ? presetFrame(chosenPreset) : undefined;
   const count = kind === 'preset' ? (chosenFrame ? presetCards.length : 0) : selected.length;
 
   async function load(mode: 'files' | 'folder') {
@@ -65,7 +65,14 @@ export function Batch({ cards, sharedFrame, presets, frameSets, fullArtBase, app
   }
 
   return <>
-    <p className="muted">{t(eligible.length === 1 ? 'eligibleCardsOne' : 'eligibleCards', { count: eligible.length, total: cards.length })}</p>
+    <div>
+      <p><strong>{selectionCount
+        ? t(selectionCount === 1 ? 'batchSelectedOne' : 'batchSelected', { count: selectionCount })
+        : t(cards.length === 1 ? 'batchWholeDeckOne' : 'batchWholeDeck', { count: cards.length })}</strong>
+        {hiddenSelectionCount > 0 && <> · {t(hiddenSelectionCount === 1 ? 'hiddenSelectionCountOne' : 'hiddenSelectionCount', { count: hiddenSelectionCount })}</>}
+      </p>
+      {eligible.length !== cards.length && <p className="muted">{t(eligible.length === 1 ? 'eligibleCardsOne' : 'eligibleCards', { count: eligible.length, total: cards.length })}</p>}
+    </div>
     <div className="form-row batch-options">
       <label>{t('apply')}<Select value={kind} disabled={loading} onChange={event => {
         setKind(event.target.value as typeof kind); setRows([]); setErrors([]);

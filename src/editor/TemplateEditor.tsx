@@ -3,24 +3,31 @@ import { errorMessage } from '../shared/i18n.js';
 import type { MessageKey } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
 import { useId, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { assetURL, blankCard, createCard, frameColorNames, frameColors, isTemplate, maxDecorations, templateNames } from '../shared/model.js';
-import type { Card, FrameDecoration, FrameColor, Rect, Template, TemplateAppearance, TemplateEffect, Zones } from '../shared/model.js';
-import { newTemplate, templateAppearance } from '../shared/templates.js';
+import type { Card, FrameDecoration, FrameColor, FrameTextArea, FrameTextStyle, Rect, Template, TemplateAppearance, TemplateEffect, Zones } from '../shared/model.js';
+import { defaultFrameTextAlign, defaultFrameTextSizes } from '../shared/templates.js';
+import type { CustomFrame } from '../shared/templates.js';
 import { FontPicker, ZoneFields, zoneLabels } from './Inspector.js';
 import { Icon } from './Icon.js';
 import { Preview } from './Preview.js';
-import { importDecoration } from './template-decorations.js';
+import { importFrameArtwork } from './frame-artwork.js';
+import { SymbolEditor } from './SymbolEditor.js';
 import { templateEffectLimits } from './template-effects.js';
+import { VisibilityConditionEditor } from './VisibilityConditionEditor.js';
 
 type AppearanceChange = (appearance: TemplateAppearance) => TemplateAppearance;
-type Section = 'appearance' | 'dividers' | 'decorations' | 'layout';
+type Section = 'appearance' | 'dividers' | 'decorations' | 'symbols' | 'layout';
 const sections: { id: Section; label: MessageKey }[] = [
   { id: 'appearance', label: 'textEffects' },
   { id: 'dividers', label: 'dividers' },
   { id: 'decorations', label: 'decorations' },
+  { id: 'symbols', label: 'symbols' },
   { id: 'layout', label: 'zones' }
 ];
 const effectAnchors = { manual: 'manual', title: 'effectTitle', type: 'effectType', rules: 'effectRules' } as const;
+export type FrameEditorTab = Template | 'custom';
+type EditorZone = keyof Zones | 'artist';
 
 function Slider({ label, value, min = 0, max, step = 1, unit, change }: {
   label: string; value: number; min?: number; max: number; step?: number; unit: string; change: (value: number) => void;
@@ -37,14 +44,19 @@ function ColorControl({ label, value, change }: { label: string; value: string; 
   </label>;
 }
 
-export function TemplateEditor({ template, selectTemplate, appearance, activeCard, cards, fonts, change, saving, saveError, retry }: {
-  template: Template; selectTemplate: (template: Template) => void; appearance: TemplateAppearance;
+export function TemplateEditor({ tab, selectTab, appearance, customFrame, customControls, reset, activeCard, cards, fonts, change, saving, saveError, retry }: {
+  tab: FrameEditorTab; selectTab: (tab: FrameEditorTab) => void; appearance: TemplateAppearance;
+  customFrame?: CustomFrame; customControls?: ReactNode; reset: () => void;
   activeCard?: Card; cards: Card[]; fonts: string[]; change: (update: AppearanceChange) => void;
   saving: boolean; saveError: string; retry: () => void;
 }) {
   const { t, locale } = useI18n();
+  const template = tab === 'custom' ? 'full-art' : tab;
   const [section, setSection] = useState<Section>('appearance');
-  const [zone, setZone] = useState<keyof Zones>();
+  const [showColors, setShowColors] = useState(tab === 'custom');
+  const [zone, setZone] = useState<EditorZone>();
+  const layoutZone = zone === 'artist' ? undefined : zone;
+  const textArea = zone === 'art' ? undefined : zone;
   const [selectedLayer, setSelectedLayer] = useState('');
   const [previewId, setPreviewId] = useState(activeCard?.source.editable ? activeCard.id : cards.find(card => card.source.editable)?.id ?? '');
   const [sampleColor, setSampleColor] = useState<FrameColor>('U');
@@ -67,16 +79,29 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
       ...example, art: sampleArt, source: { ...example.source, colors: sampleColor === 'C' ? [] : [sampleColor] },
       fields: { ...example.fields, mana: sampleColor === 'C' ? '{3}' : '{2}{' + sampleColor + '}' }
     }),
-    frame: { kind: 'template', template, appearance }
-  }), [previewSource, sampleArt, sampleColor, template, appearance, example]);
-  const count = cards.filter(card => card.source.editable && card.frame.kind === 'template' && card.frame.template === template).length;
+    frame: customFrame ?? { kind: 'template', template, appearance }
+  }), [previewSource, sampleArt, sampleColor, template, appearance, example, customFrame]);
+  const count = cards.filter(card => {
+    const frame = card.frame;
+    if (!card.source.editable) return false;
+    if (tab !== 'custom') return frame.kind === 'template' && frame.template === tab;
+    if (customFrame?.kind === 'color-set') return frame.kind === 'color-set' && frame.set.id === customFrame.set.id;
+    return customFrame?.kind === 'custom' && frame.kind === 'custom' && frame.appearance === customFrame.appearance && frame.asset === customFrame.asset;
+  }).length;
+  const customSetup = tab === 'custom' && (!customFrame || showColors);
 
   function patch(values: Partial<TemplateAppearance>) {
     change(previous => ({ ...previous, ...values }));
   }
 
+  function editTextStyle(area: FrameTextArea, style: FrameTextStyle) {
+    change(previous => ({ ...previous, textStyles: {
+      ...previous.textStyles, [area]: { ...previous.textStyles?.[area], ...style }
+    } }));
+  }
+
   function updateZone(rect: Rect) {
-    if (zone) change(previous => ({ ...previous, zones: { ...previous.zones, [zone]: rect } }));
+    if (layoutZone) change(previous => ({ ...previous, zones: { ...previous.zones, [layoutZone]: rect } }));
   }
 
   function editDecoration(values: Partial<FrameDecoration>) {
@@ -91,7 +116,7 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
     setUploading(true);
     setUploadError('');
     try {
-      const asset = await importDecoration(file);
+      const asset = await importFrameArtwork(file);
       const entry: FrameDecoration = {
         id: crypto.randomUUID(), name: asset.name, source: { kind: 'image', asset: asset.id },
         rect: { x: 3, y: 3, w: 94, h: 94 }, opacity: 1, color: '#fff8ea', fit: 'contain', tint: 'original'
@@ -114,18 +139,21 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
     patch({ decorations: next });
   }
 
-  const guide = section === 'decorations' ? decoration?.rect : undefined;
+  const guide = !customSetup && section === 'decorations' ? decoration?.rect : undefined;
   return <div className="template-editor">
     <div className="template-editor-top">
       <div className="template-switch" role="group" aria-label={t('projectFrame')}>
         {Object.keys(templateNames).filter(isTemplate).map(item =>
-          <button key={item} aria-pressed={item === template} disabled={uploading} onClick={() => {
-            setSelectedLayer(''); setZone(undefined); setUploadError(''); selectTemplate(item);
+          <button key={item} aria-pressed={item === tab} disabled={uploading} onClick={() => {
+            setShowColors(false); setSelectedLayer(''); setZone(undefined); setUploadError(''); selectTab(item);
           }}>{t(templateNames[item])}</button>)}
+        <button aria-pressed={tab === 'custom'} disabled={uploading} onClick={() => {
+          setShowColors(true); setSelectedLayer(''); setZone(undefined); setUploadError(''); selectTab('custom');
+        }}>{t('customFrames')}</button>
       </div>
       <p id={helpId} className="muted">
         {count ? t(count === 1 ? 'frameCardsOne' : 'frameCards', { count }) : t('noFrameCards')}
-        {' '}{t('frameChangesHelp')}
+        {(tab !== 'custom' || customFrame) && <> {' '}{t('frameChangesHelp')}</>}
       </p>
     </div>
 
@@ -142,15 +170,19 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
           </Select></label>}
         </div>
         <div className="template-preview-card">
-          <Preview card={preview} showThirds hideWarning={!previewSource} guide={guide} zone={section === 'layout' ? zone : undefined}
+          <Preview card={preview} showThirds hideWarning={!previewSource} guide={guide} zone={!customSetup && section === 'layout' ? layoutZone : undefined}
             onZone={guide ? rect => editDecoration({ rect }) : updateZone} />
         </div>
       </section>
 
       <section className="template-controls" aria-label={t('customization')}>
         <div className="template-sections" role="group" aria-label={t('frameControls')}>
-          {sections.map(item => <button key={item.id} aria-pressed={section === item.id} onClick={() => setSection(item.id)}>{t(item.label)}</button>)}
+          {tab === 'custom' && <button aria-pressed={customSetup} onClick={() => setShowColors(true)}>{t('frameColors')}</button>}
+          {sections.map(item => <button key={item.id} aria-pressed={!customSetup && section === item.id} disabled={tab === 'custom' && !customFrame}
+            onClick={() => { setShowColors(false); setSection(item.id); }}>{t(item.label)}</button>)}
         </div>
+        <div className="template-controls-body" hidden={!customSetup}>{customControls}</div>
+        {!customSetup &&
         <div className="template-controls-body">
           {section === 'appearance' && <>
             <fieldset className="template-settings">
@@ -187,12 +219,17 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
             </fieldset>
           </>}
 
-          {section === 'dividers' && <fieldset className="template-settings">
-            <legend>{t('dividers')}</legend>
-            <label className="check"><input type="checkbox" checked={appearance.titleDivider ?? false}
-              onChange={event => patch({ titleDivider: event.target.checked })} />{t('belowTitle')}</label>
-            <label className="check"><input type="checkbox" checked={appearance.divider}
-              onChange={event => patch({ divider: event.target.checked })} />{t('aboveRules')}</label>
+          {section === 'symbols' && <SymbolEditor appearance={appearance} change={change} />}
+
+          {section === 'dividers' && <div className="template-settings" role="group" aria-label={t('dividers')}>
+            {([
+              ['titleDivider', 'titleDividerHideWhen', 'belowTitle'],
+              ['divider', 'dividerHideWhen', 'aboveRules']
+            ] as const).map(([enabled, condition, label]) => <div className="template-divider-controls" role="group" aria-label={t(label)} key={enabled}>
+              <label className="check"><input type="checkbox" checked={appearance[enabled] ?? false}
+                onChange={event => patch({ [enabled]: event.target.checked })} />{t(label)}</label>
+              <VisibilityConditionEditor condition={appearance[condition]} change={value => patch({ [condition]: value })} />
+            </div>)}
             <label className="check"><input type="checkbox" checked={!appearance.accent}
               onChange={event => patch({ accent: event.target.checked ? undefined : '#fff8ea' })} />{t('dividerColorFromCard')}</label>
             {appearance.accent && <ColorControl label={t('dividerColor')} value={appearance.accent} change={accent => patch({ accent })} />}
@@ -209,7 +246,7 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
                 <option value="solid">{t('solid')}</option><option value="fade">{t('fadedEnds')}</option><option value="dashed">{t('dashed')}</option>
               </Select></label>
             </div>
-          </fieldset>}
+          </div>}
 
           {section === 'decorations' && <>
             <div className="template-decoration-tools" onDragOver={event => {
@@ -265,32 +302,43 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
               </div>
               {decoration.tint === 'custom' && <ColorControl label={t('decorationTint')} value={decoration.color} change={color => editDecoration({ color })} />}
               <Slider label={t('decorationOpacity')} value={Math.round(decoration.opacity * 100)} max={100} unit="%" change={value => editDecoration({ opacity: value / 100 })} />
+              <VisibilityConditionEditor condition={decoration.hideWhen} change={hideWhen => editDecoration({ hideWhen })} />
               <ZoneFields rect={decoration.rect} update={rect => editDecoration({ rect })} />
               <p className="muted">{t('moveLayerHelp')}</p>
             </fieldset>}
           </>}
 
           {section === 'layout' && <fieldset className="template-settings">
-            <legend>{t('positionSize')}</legend>
+            <legend>{t(zone === 'artist' ? 'typography' : 'positionSize')}</legend>
             <label>{t('zoneToEdit')}<Select value={zone ?? ''} onChange={event =>
-              setZone((event.target.value || undefined) as keyof Zones | undefined)}>
+              setZone((event.target.value || undefined) as EditorZone | undefined)}>
               <option value="">{t('selectZone')}</option>
               {Object.entries(zoneLabels).map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}
+              <option value="artist">{t('artistCredit')}</option>
             </Select></label>
-            {zone && <>
-              <ZoneFields rect={appearance.zones[zone]} update={updateZone} />
+            {layoutZone && <>
+              <ZoneFields rect={appearance.zones[layoutZone]} update={updateZone} />
               <p className="muted">{t('resizeZoneHelp')}</p>
             </>}
+            {textArea && <div className="template-control-grid">
+              <label>{t('horizontalAlignment')}<Select value={appearance.textStyles?.[textArea]?.align ?? defaultFrameTextAlign(textArea)}
+                onChange={event => editTextStyle(textArea, { align: event.target.value as FrameTextStyle['align'] })}>
+                <option value="left">{t('left')}</option><option value="center">{t('center')}</option><option value="right">{t('right')}</option>
+              </Select></label>
+              <Slider label={t('maxFontSize')} value={appearance.textStyles?.[textArea]?.size ?? (tab === 'custom' && textArea === 'artist' ? 20 : defaultFrameTextSizes[textArea])}
+                min={8} max={96} unit=" px" change={size => editTextStyle(textArea, { size })} />
+            </div>}
           </fieldset>}
         </div>
+        }
       </section>
     </div>
 
     <div className="template-editor-footer">
       <span className={saveError ? 'error' : 'muted'} role="status">{saveError || (saving ? t('saving') : t('autosave'))}</span>
       {saveError && <button onClick={retry}>{t('retry')}</button>}
-      <button className="icon-label" disabled={uploading} onClick={() => {
-        change(() => templateAppearance(newTemplate(template)));
+      <button className="icon-label" disabled={uploading || (tab === 'custom' && !customFrame)} onClick={() => {
+        reset();
         setZone(undefined); setSelectedLayer(''); setUploadError('');
       }}><Icon name="reset" size={16} />{' '}{t('resetFrame')}</button>
     </div>

@@ -3,7 +3,8 @@ import { Select } from './Select.js';
 import type { Locale, MessageKey } from '../shared/i18n.js';
 import { errorMessage, LocalizedError } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
-import { projectCards, projectFrame, templateAppearance, withProjectFrame } from '../shared/templates.js';
+import { customFrameAppearance, frameAppearance, presetFrame, projectCards, projectFrame, templateAppearance, withProjectFrame } from '../shared/templates.js';
+import type { CustomFrame } from '../shared/templates.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { assetURL, blankCard, cardSide, createCard, createProject, defaultCrop, defaultZones, isCardModified, rebaseBackSide, sideOrientation, sideState } from '../shared/model.js';
@@ -17,14 +18,20 @@ import { Batch } from './Batch.js';
 import { Inspector } from './Inspector.js';
 import { Preview } from './Preview.js';
 import { PrintPanel } from './PrintPanel.js';
+import type { PrintDraft } from './PrintPanel.js';
 import { PrintChoices } from './PrintChoices.js';
 import { CardExportPanel } from './CardExportPanel.js';
+import type { CardExportDraft } from './CardExportPanel.js';
 import { Icon } from './Icon.js';
 import { TemplateEditor } from './TemplateEditor.js';
+import type { FrameEditorTab } from './TemplateEditor.js';
 import { ProjectFrameSelect } from './ProjectFrameSelect.js';
 import { pngArtZone } from './compose.js';
 
-type Panel = 'deck' | 'batch' | 'print' | 'sheet' | 'cards' | 'printings' | 'frames' | 'frame-sets' | 'templates';
+type ExportMode = 'sheet' | 'cards';
+type Panel = 'deck' | 'batch' | 'print' | ExportMode | 'printings' | 'frames' | 'templates' | 'switch-project';
+type WorkspacePane = 'deck' | 'preview' | 'properties';
+const workspacePanes: WorkspacePane[] = ['deck', 'preview', 'properties'];
 const usesArt = (card: Card) => card.source.editable && card.frame.kind !== 'printing';
 const imageKey = (projectId: string, card: Card) => `${projectId}/${card.id}/${card.source.printingId}/${usesArt(card) ? 'art' : 'scan'}`;
 const needsImages = (card: Card) => !!card.source.printingId && (usesArt(card)
@@ -48,14 +55,34 @@ function Dialog({ title, children, close, busy, wide, back }: {
   useEffect(() => { heading.current?.focus(); }, [title]);
   return <dialog ref={ref} className={wide ? "dialog dialog-wide" : "dialog"} onCancel={event => { event.preventDefault(); if (!busy) close(); }} aria-labelledby="dialog-title">
     <header><div className="dialog-heading">
-      {back && <button className="icon-button" aria-label={t('backToPrint')} title={t('backToPrint')} onClick={back} disabled={busy}><Icon name="undo" /></button>}
+      {back && <button className="icon-button" aria-label={t('backToExport')} title={t('backToExport')} onClick={back} disabled={busy}><Icon name="undo" /></button>}
       <h2 id="dialog-title" ref={heading} tabIndex={-1}>{title}</h2>
     </div><button className="icon-button" aria-label={t('close')} title={t('close')} onClick={close} disabled={busy}><Icon name="close" /></button></header>
     <div className="dialog-body">{children}</div>
   </dialog>;
 }
 
-const titles: Record<Panel, MessageKey> = { deck: 'importList', batch: 'batchEdit', print: 'print', sheet: 'exportPdf', cards: 'individualCards', printings: 'chooseEdition', frames: 'chooseFrame', 'frame-sets': 'frameSets', templates: 'projectFrameEditor' };
+const titles: Record<Panel, MessageKey> = { deck: 'importList', batch: 'batchEdit', print: 'exportProject', sheet: 'exportPdf', cards: 'exportCardImages', printings: 'chooseEdition', frames: 'chooseFrame', templates: 'projectFrameEditor', 'switch-project': 'unsavedChanges' };
+
+function DeckQuantity({ card, change }: { card: Card; change: (count: number) => void }) {
+  const { t } = useI18n();
+  const [rejected, setRejected] = useState(false);
+  const errorId = `quantity-error-${card.id}`;
+  return <>
+    <input type="number" aria-label={t('cardQuantity', { name: card.fields.name || t('untitledCard') })}
+      aria-describedby={rejected ? errorId : undefined} min={1} max={999} defaultValue={card.count}
+      onChange={() => setRejected(false)} onBlur={event => {
+        const count = event.target.valueAsNumber;
+        if (Number.isInteger(count) && count >= 1 && count <= 999) {
+          if (count !== card.count) change(count);
+        } else {
+          event.target.value = String(card.count);
+          setRejected(true);
+        }
+      }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
+    <small id={errorId} className="deck-quantity-error error" role="status">{rejected ? t('quantityRange') : ''}</small>
+  </>;
+}
 
 function projectTemplate(project: Project, template: Template, active?: Card) {
   const sharedFrame = projectFrame(project);
@@ -73,9 +100,25 @@ function projectTemplate(project: Project, template: Template, active?: Card) {
   return templateAppearance({ kind: 'template', template, appearance });
 }
 
+function editableCustomFrame(project: Project, selection: string, side?: Card): CustomFrame | undefined {
+  if (selection === 'project') return project.frame?.kind === 'custom' ? project.frame : undefined;
+  if (selection === 'card') return side?.frame.kind === 'custom' ? side.frame : undefined;
+  if (selection.startsWith('preset/')) {
+    const preset = project.presets.find(item => item.id === selection.slice(7));
+    return preset && presetFrame(preset);
+  }
+  const set = project.frameSets?.find(item => item.id === selection);
+  if (set) return { kind: 'color-set', set };
+  if (side?.frame.kind === 'color-set' && side.frame.set.id === selection) return side.frame;
+}
+
 export function App() {
   const { t, locale, setLocale } = useI18n();
+  const listSearchRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const searchResultsRef = useRef<HTMLDivElement>(null);
+  const cardHeading = useRef<HTMLHeadingElement>(null);
+  const pendingCardFocus = useRef<string>(null);
   const [project, setProject] = useState<Project | null>(null);
   const live = useRef<Project | null>(null);
   const [projects, setProjects] = useState<Array<Pick<Project, 'id' | 'name'>>>([]);
@@ -86,7 +129,12 @@ export function App() {
   const [back, setBack] = useState(false);
   const [compare, setCompare] = useState(false);
   const [panel, setPanel] = useState<Panel>();
-  const [template, setTemplate] = useState<Template>('full-art');
+  const [switchTarget, setSwitchTarget] = useState('');
+  const [pdfDraft, setPdfDraft] = useState<PrintDraft>();
+  const [zipDraft, setZipDraft] = useState<CardExportDraft>();
+  const [exportRepair, setExportRepair] = useState<ExportMode>();
+  const [editorTab, setEditorTab] = useState<FrameEditorTab>('full-art');
+  const [customFrameId, setCustomFrameId] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [error, setError] = useState('');
@@ -98,14 +146,18 @@ export function App() {
   const [listQuery, setListQuery] = useState('');
   const [modificationFilter, setModificationFilter] = useState<'all' | 'unmodified' | 'modified'>('all');
   const [deckCollapsed, setDeckCollapsed] = useState(false);
+  const [workspacePane, setWorkspacePane] = useState<WorkspacePane>('preview');
+  const [searchFocusRequest, setSearchFocusRequest] = useState(0);
   const [searchFeedback, setSearchFeedback] = useState<Error>();
-  const [searching, setSearching] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [addingCatalogCard, setAddingCatalogCard] = useState(false);
   const [imageLoads, setImageLoads] = useState<Set<string>>(new Set());
   const attemptedImages = useRef(new Set<string>());
   const [choices, setChoices] = useState<Printing[]>([]);
   const [deckText, setDeckText] = useState('');
   const [deckErrors, setDeckErrors] = useState<string[]>([]);
   const [deckProgress, setDeckProgress] = useState('');
+  const [deckImported, setDeckImported] = useState(0);
   const [history, setHistory] = useState<Project[]>([]);
   const revision = useRef(0);
   const lastHistory = useRef(0);
@@ -117,26 +169,44 @@ export function App() {
     return side.source.editable ? side : { ...side, source: editableSource(side.source) };
   };
   const selectedCard = card ? forEditing(card) : undefined;
+  const cardSet = selectedCard?.frame.kind === 'color-set' ? selectedCard.frame.set : undefined;
   const selectedRendered = renderedCard ? forEditing(renderedCard) : undefined;
   const needsDownload = (item: Card) => !!project && needsImages(item) && !attemptedImages.current.has(imageKey(project.id, item));
   const nextImageCard = renderedCard && needsDownload(renderedCard) ? renderedCard
     : project && sharedFrame ? projectCards(project).find(needsDownload) : undefined;
   const loadingImages = !!nextImageCard || imageLoads.size > 0;
-  const editedAppearance = useMemo(() => panel === 'templates' && project
-    ? projectTemplate(project, template, card) : undefined, [panel, project, template, card]);
+  const editedCustom = panel === 'templates' && editorTab === 'custom' && project
+    ? editableCustomFrame(project, customFrameId, selectedCard) : undefined;
+  const editedAppearance = panel === 'templates' && project
+    ? editorTab === 'custom' ? editedCustom ? frameAppearance(editedCustom) : customFrameAppearance(defaultZones)
+      : projectTemplate(project, editorTab, card)
+    : undefined;
+
+  useEffect(() => {
+    if (!card || panel || pendingCardFocus.current !== card.id || !cardHeading.current) return;
+    pendingCardFocus.current = null;
+    cardHeading.current.focus();
+  }, [card?.id, panel, workspacePane]);
 
   function showProject(value: Project) {
+    revision.current++;
     live.current = value;
     setProject(value);
     setActive(value.cards[0]?.id ?? '');
+    setWorkspacePane('preview');
     setSelected(new Set());
     setListQuery('');
     setHistory([]);
     lastHistory.current = 0;
+    pendingCardFocus.current = null;
+    setQuery('');
     setChoices([]);
     setSearchFeedback(undefined);
     setZone(undefined);
     setBack(false);
+    setCustomFrameId('');
+    clearExportRepair();
+    setSaving(false);
     setSaveError('');
     setNotice(undefined);
     localStorage.setItem('active-project', value.id);
@@ -158,6 +228,14 @@ export function App() {
     return () => { active = false; window.removeEventListener('focus', refresh); };
   }, []);
 
+  function openCatalogSearch(hasCard: boolean) {
+    setWorkspacePane(hasCard ? 'deck' : 'preview');
+    setSearchFocusRequest(request => request + 1);
+  }
+  useEffect(() => {
+    if (searchFocusRequest) searchRef.current?.focus();
+  }, [searchFocusRequest]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -165,7 +243,7 @@ export function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && !event.shiftKey) {
         if (!panel && history.length && !typing) { event.preventDefault(); undo(); }
       } else if (event.key === '/' && !typing && !panel) {
-        event.preventDefault(); searchRef.current?.focus();
+        event.preventDefault(); openCatalogSearch(!!project?.cards.length);
       } else if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !panel && project?.cards.length && !busy && !loadingImages) {
         event.preventDefault(); setError(''); setPanel('print');
       } else if (event.key === 'Escape' && !panel && target === document.body) {
@@ -180,12 +258,30 @@ export function App() {
     const current = ++revision.current;
     setSaving(true);
     setSaveError('');
-    void window.proxy.save(next).then(() => {
+    return window.proxy.save(next).then(() => {
       setProjects(list => [...list.filter(item => item.id !== next.id), { id: next.id, name: next.name }]
         .sort((a, b) => a.name.localeCompare(b.name, 'it')));
+      return true;
     }).catch(cause => {
       if (current === revision.current) setSaveError(errorMessage(cause, locale));
+      return false;
     }).finally(() => { if (current === revision.current) setSaving(false); });
+  }
+
+  function switchProject(id: string) {
+    setSwitchTarget('');
+    setPanel(undefined);
+    if (id === 'new') {
+      const next = createProject(t('untitledDeck'));
+      showProject(next);
+      void persist(next);
+    } else {
+      void action(async () => { showProject(await window.proxy.open(id)); });
+    }
+  }
+
+  async function retryProjectSwitch() {
+    if (live.current && await persist(live.current)) switchProject(switchTarget);
   }
 
   function commit(change: (project: Project) => Project, group = false) {
@@ -231,13 +327,42 @@ export function App() {
     setActive(id);
     setZone(undefined);
     setBack(false);
+    if (window.matchMedia('(max-width: 620px)').matches) {
+      if (document.activeElement?.closest('.deck')) pendingCardFocus.current = id;
+      setWorkspacePane('preview');
+    }
   }
 
-  function addCards(additions: Card[]) {
+  function activateAndFocus(id: string) {
+    pendingCardFocus.current = id;
+    activate(id);
+  }
+
+  function openCardForExport(mode: ExportMode, id: string, back: boolean) {
+    activateAndFocus(id);
+    setBack(back);
+    setExportRepair(mode);
+    setPanel(undefined);
+  }
+
+  function clearExportRepair() {
+    setPdfDraft(undefined);
+    setZipDraft(undefined);
+    setExportRepair(undefined);
+  }
+
+  function finishExport(key: 'pdfSaved' | 'zipSaved') {
+    clearExportRepair();
+    setNotice({ key });
+    setPanel(undefined);
+  }
+
+  function addCards(additions: Card[], focus = false) {
     if (!additions.length) return;
     if ((live.current?.cards.length ?? 0) + additions.length > 1500) throw new LocalizedError('projectLimit');
     commit(value => ({ ...value, cards: [...value.cards, ...additions] }));
-    activate(additions[0].id);
+    if (focus) activateAndFocus(additions[0].id);
+    else activate(additions[0].id);
   }
 
   async function action(run: () => Promise<void>) {
@@ -253,6 +378,7 @@ export function App() {
     const projectId = live.current?.id;
     if (!projectId) return;
     const key = imageKey(projectId, card);
+    if (imageLoads.has(key)) return;
     attemptedImages.current.add(key);
     setImageLoads(loads => new Set(loads).add(key));
     let images: Card['source']['images'];
@@ -297,8 +423,10 @@ export function App() {
     let current = true;
     setChoices([]);
     setSearchFeedback(undefined);
+    setCatalogLoading(false);
     if (!name) return () => { current = false; };
     const timer = window.setTimeout(() => {
+      setCatalogLoading(true);
       void window.proxy.search(name).then(result => {
         if (!current) return;
         const options = [...(result.exact ? [result.exact] : []), ...result.choices];
@@ -306,6 +434,8 @@ export function App() {
         if (!options.length) setSearchFeedback(new LocalizedError('noCardsFound'));
       }).catch(cause => {
         if (current) setSearchFeedback(cause instanceof Error ? cause : new Error(String(cause)));
+      }).finally(() => {
+        if (current) setCatalogLoading(false);
       });
     }, 350);
     return () => { current = false; window.clearTimeout(timer); };
@@ -313,19 +443,20 @@ export function App() {
 
   async function lookup(printing: Printing) {
     if (busy) return;
+    searchRef.current?.focus();
     setSearchFeedback(undefined);
-    setSearching(true);
+    setAddingCatalogCard(true);
     await action(async () => {
       try {
         const card = createCard(await window.proxy.card(printing.id, false));
-        addCards([card]);
+        addCards([card], true);
         setQuery('');
         setChoices([]);
       } catch (cause) {
         setSearchFeedback(cause instanceof Error ? cause : new Error(String(cause)));
       }
     });
-    setSearching(false);
+    setAddingCatalogCard(false);
   }
 
   const [editions, setEditions] = useState<Printing[]>([]);
@@ -393,36 +524,71 @@ export function App() {
     const selected = new Set(applyTo.filter(card => card.source.editable).map(card => card.id));
     commit(value => {
       const sets = value.frameSets ?? [];
-      const frameSets = sets.some(item => item.id === set.id) ? sets.map(item => item.id === set.id ? set : item) : [...sets, set];
-      return { ...value, frameSets, cards: value.cards.map(item =>
-        selected.has(item.id) || (item.frame.kind === 'color-set' && item.frame.set.id === set.id)
-          ? { ...item, frame: { kind: 'color-set', set } } : item
-      ) };
+      const frameSets = sets.some(item => item.id === set.id) ? sets.map(item => item.id === set.id ? set : item)
+        : sets.length < 200 ? [...sets, set] : sets;
+      return { ...value, frameSets, cards: value.cards.map(item => {
+        const replaceFront = selected.has(item.id) || (item.frame.kind === 'color-set' && item.frame.set.id === set.id);
+        const replaceBack = item.backSide?.frame.kind === 'color-set' && item.backSide.frame.set.id === set.id;
+        if (!replaceFront && !replaceBack) return item;
+        const frame = { kind: 'color-set' as const, set };
+        return { ...item, frame: replaceFront ? frame : item.frame,
+          backSide: replaceBack && item.backSide ? { ...item.backSide, frame } : item.backSide };
+      }) };
     }, group);
   }
 
   function manageFrameSets() {
-    setError('');
-    setPanel('frame-sets');
+    const frame = project?.frame;
+    const set = (back ? selectedRendered : renderedCard)?.frame;
+    const selection = frame?.kind === 'custom' ? 'project'
+      : frame?.kind === 'preset' ? 'preset/' + frame.id
+      : frame?.kind === 'color-set' ? frame.id
+      : set?.kind === 'color-set' ? set.set.id
+      : set?.kind === 'custom' && selectedCard?.frame.kind === 'custom' ? 'card' : '';
+    setCustomFrameId(selection);
+    editTemplate('custom');
   }
 
-  function selectTemplate(next: Template) {
+  function selectEditorTab(next: FrameEditorTab) {
     lastHistory.current = 0;
-    setTemplate(next);
+    setEditorTab(next);
   }
 
-  function editTemplate(next: Template) {
-    selectTemplate(next);
+  function editTemplate(next: FrameEditorTab) {
+    selectEditorTab(next);
     setError('');
     setPanel('templates');
   }
 
   function changeTemplate(update: (appearance: TemplateAppearance) => TemplateAppearance) {
-    if (live.current?.id !== project?.id) return;
-    commit(value => ({
-      ...value,
-      templateAppearances: { ...value.templateAppearances, [template]: update(projectTemplate(value, template, card)) }
+    const value = live.current;
+    if (!value || value.id !== project?.id) return;
+    if (editorTab !== 'custom') {
+      commit(previous => ({
+        ...previous,
+        templateAppearances: { ...previous.templateAppearances, [editorTab]: update(projectTemplate(previous, editorTab, card)) }
+      }), true);
+      return;
+    }
+    const current = value.cards.find(item => item.id === card?.id);
+    const frame = editableCustomFrame(value, customFrameId, current ? cardSide(current, back) : undefined);
+    if (!frame) return;
+    const appearance = update(frameAppearance(frame));
+    if (frame.kind === 'color-set') saveColorSet({ ...frame.set, appearance }, [], true);
+    else if (customFrameId === 'project') commit(previous => ({ ...previous, frame: { ...frame, appearance } }), true);
+    else if (customFrameId === 'card' && current) updateSide(current.id, { frame: { ...frame, appearance } }, true);
+    else commit(previous => ({
+      ...previous, presets: previous.presets.map(item => 'preset/' + item.id === customFrameId ? { ...item, appearance } : item)
     }), true);
+  }
+
+  function resetEditedFrame() {
+    if (editedCustom) {
+      const base = editedCustom.kind === 'color-set' ? editedCustom.set : editedCustom;
+      changeTemplate(() => customFrameAppearance(base.zones, base.textColor, base.fontFamily));
+    } else if (editorTab !== 'custom') {
+      changeTemplate(() => templateAppearance({ kind: 'template', template: editorTab }));
+    }
   }
 
   function changeZone(rect: Rect) {
@@ -459,7 +625,11 @@ export function App() {
           setDeckText([...failed.map(({ item }) => entryText(item)), ...invalid].join('\n'));
           setDeckErrors([...errors, ...failed.flatMap(({ error }) => error ? [error] : [])]);
         }
-        if (additions.length) setNotice({ key: additions.length === 1 ? 'cardsImportedOne' : 'cardsImported', count: additions.length });
+        if (additions.length) {
+          const count = deckImported + additions.length;
+          setDeckImported(count);
+          setNotice({ key: count === 1 ? 'cardsImportedOne' : 'cardsImported', count });
+        }
       } finally {
         setDeckProgress('');
       }
@@ -478,19 +648,49 @@ export function App() {
   const total = project.cards.reduce((sum, item) => sum + item.count, 0);
   const selection = project.cards.filter(item => selected.has(item.id));
   const visibleCards = project.cards.filter(item => (modificationFilter === 'all' || isCardModified(item) === (modificationFilter === 'modified')) && matchesCardSearch(item, listQuery, locale, t('untitledCard')));
+  const visibleSelection = visibleCards.filter(item => selected.has(item.id));
+  const hiddenSelectionCount = selection.length - visibleSelection.length;
+  const allVisibleSelected = visibleCards.length > 0 && visibleSelection.length === visibleCards.length;
   const batchCards = selection.length ? selection : project.cards;
   const sharedArt = cardsWithSharedArt(project.cards);
   const loadingImage = !!renderedCard && (imageLoads.has(imageKey(project.id, renderedCard)) || needsDownload(renderedCard));
-  const catalogSearch = <div className="catalog-search">
-    <form className="search" role="search" onSubmit={event => { event.preventDefault(); setSearchRevision(value => value + 1); }}>
+  const missingArtwork = !!selectedRendered?.source.printingId && usesArt(selectedRendered)
+    && !(selectedRendered.art || selectedRendered.source.images.art) && !selectedRendered.hiddenZones?.includes('art');
+  const deckAddActions = <>
+    <button className="icon-label" onClick={() => { setError(''); setDeckErrors([]); setDeckImported(0); setPanel('deck'); }} aria-label={t('importList')} disabled={busy}><Icon name="import" /><span>{t('importList')}</span></button>
+    <button className="icon-label" onClick={() => addCards([createCard({ ...blankCard, name: t('untitledCard') })], !card)} aria-label={t('addBlankCard')} disabled={busy || project.cards.length >= 1500}><Icon name="add" /><span>{t('blankCard')}</span></button>
+  </>;
+  const catalogSearch = <div className="catalog-search" onKeyDown={event => {
+    if (busy || !choices.length || event.nativeEvent.isComposing || event.metaKey || event.ctrlKey) return;
+    const inSearch = event.target === searchRef.current;
+    if (!inSearch && !searchResultsRef.current?.contains(event.target as Node)) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setChoices([]);
+      searchRef.current?.focus();
+    } else if (inSearch && event.key === 'Enter') {
+      event.preventDefault();
+      void lookup(choices[0]);
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const buttons = Array.from(searchResultsRef.current?.querySelectorAll('button') ?? []);
+      const index = buttons.findIndex(button => button === event.target);
+      const next = event.key === 'ArrowDown' ? (index + 1) % buttons.length : (index <= 0 ? buttons.length - 1 : index - 1);
+      buttons[next]?.focus();
+    }
+  }}>
+    <form className="search" role="search" onSubmit={event => {
+      event.preventDefault();
+      if (query.trim() && !busy && !catalogLoading) setSearchRevision(value => value + 1);
+    }}>
       <input ref={searchRef} type="search" aria-label={t('cardSearchName')} placeholder={t('cardSearchExample')} maxLength={300} value={query}
-        autoFocus={!card} disabled={searching} onChange={event => {
+        autoFocus={!card} readOnly={addingCatalogCard} aria-controls={choices.length ? 'catalog-search-results' : undefined} onChange={event => {
           setQuery(event.target.value); setSearchFeedback(undefined); setChoices([]);
         }} />
-      <button className={`icon-button${card ? '' : ' primary'}`} aria-label={searching ? t('searching') : t('searchCard')} title={t('searchShortcut')} disabled={!query.trim() || busy}><Icon name="search" /></button>
+      <button className={`icon-button${card ? '' : ' primary'}`} aria-label={t('searchCard')} title={t('searchShortcut')} disabled={!query.trim() || busy || catalogLoading}><Icon name="search" /></button>
     </form>
-    {searchFeedback && <p className="search-feedback" role="status">{errorMessage(searchFeedback, locale)}</p>}
-    {choices.length > 0 && <Dropdown className="results" aria-label={t('searchResults')}>
+    <p className="search-feedback" role="status">{addingCatalogCard ? t('addingCatalogCard') : catalogLoading ? t('searching') : searchFeedback ? errorMessage(searchFeedback, locale) : ''}</p>
+    {choices.length > 0 && <Dropdown ref={searchResultsRef} className="results" id="catalog-search-results" role="group" aria-label={t('searchResults')}>
       {choices.map(printing => <button key={printing.id} disabled={busy} onClick={() => void lookup(printing)}>
         <strong>{printing.name}</strong><small>{printing.setName}</small>
       </button>)}
@@ -503,8 +703,11 @@ export function App() {
       <div className="project-tools">
         <Select aria-label={t('openProject')} disabled={busy || saving} value={project.id} onChange={event => {
           const id = event.target.value;
-          if (id === 'new') { const next = createProject(t('untitledDeck')); showProject(next); persist(next); return; }
-          void action(async () => { showProject(await window.proxy.open(id)); });
+          if (saveError) {
+            setError('');
+            setSwitchTarget(id);
+            setPanel('switch-project');
+          } else switchProject(id);
         }}>
           {!projects.some(item => item.id === project.id) && <option value={project.id}>{project.name}</option>}
           {projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -518,18 +721,24 @@ export function App() {
           <option value="it" lang="it">Italiano</option>
           <option value="en" lang="en">English</option>
         </Select>
-        <button className="icon-label" disabled={busy} onClick={() => {
+        <button className="icon-label frame-editor-button" aria-label={t('frameEditor')} title={t('frameEditor')} disabled={busy} onClick={() => {
           const frame = sharedFrame ?? renderedCard?.frame;
-          editTemplate(frame?.kind === 'template' ? frame.template : 'full-art');
+          if (frame?.kind === 'color-set' || frame?.kind === 'custom') manageFrameSets();
+          else editTemplate(frame?.kind === 'template' ? frame.template : 'full-art');
         }}>
           <Icon name="settings" /><span>{t('frameEditor')}</span>
         </button>
         <button className="icon-button" aria-label={t('frameSets')} title={t('frameSets')} disabled={busy} onClick={manageFrameSets}><Icon name="frames" /></button>
-        <button className="icon-label primary" aria-label={t('print')} title={t('printShortcut')} disabled={!project.cards.length || busy || loadingImages} onClick={() => { setError(''); setPanel('print'); }}><Icon name="print" /><span>{t('print')}</span></button>
+        <button className="icon-label primary" aria-keyshortcuts="Meta+Enter Control+Enter" title={t('exportShortcut')} disabled={!project.cards.length || busy || loadingImages} onClick={() => { setError(''); setPanel('print'); }}><Icon name="export" /><span>{t('exportProject')}</span></button>
       </div>
     </header>
-    <div className="columns">
-      <aside className="deck">
+    <nav className="workspace-nav" aria-label={t('workspacePanels')}>
+      {workspacePanes.map(pane => <button key={pane} type="button" aria-controls={`workspace-${pane}`}
+        aria-pressed={workspacePane === pane} onClick={() => setWorkspacePane(pane)}>{t(pane)}</button>)}
+      <button className="icon-button" type="button" aria-label={t('findCard')} title={t('findCard')} onClick={() => openCatalogSearch(!!card)}><Icon name="search" /></button>
+    </nav>
+    <div className="columns" data-pane={workspacePane}>
+      <aside id="workspace-deck" className="deck">
         <div className="panel-title deck-title">
           <h2>{t('deck')}</h2><span className="muted">{t(total === 1 ? 'copyCountOne' : 'copyCount', { count: total })}</span>
           <button className="icon-button" aria-label={t(deckCollapsed ? 'expandDeck' : 'collapseDeck')} title={t(deckCollapsed ? 'expandDeck' : 'collapseDeck')} aria-expanded={!deckCollapsed} aria-controls="deck-content" onClick={() => setDeckCollapsed(value => !value)}><Icon name={deckCollapsed ? 'expand' : 'collapse'} /></button>
@@ -542,31 +751,58 @@ export function App() {
               if (name !== project.name) commit(value => ({ ...value, name }));
             }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
           <ProjectFrameSelect project={project} disabled={busy} change={changeProjectFrame} importFrame={importProjectFrame} />
-          <div className="deck-add">
-            <button className="icon-label" onClick={() => { setError(''); setDeckErrors([]); setPanel('deck'); }} aria-label={t('importList')} disabled={busy}><Icon name="import" /><span>{t('importList')}</span></button>
-            <button className="icon-label" onClick={() => addCards([createCard({ ...blankCard, name: t('untitledCard') })])} aria-label={t('addBlankCard')} disabled={busy || project.cards.length >= 1500}><Icon name="add" /><span>{t('blankCard')}</span></button>
-          </div>
+          <div className="deck-add">{deckAddActions}</div>
         </div>
         {card && <div className="deck-catalog-search">{catalogSearch}</div>}
         {project.cards.length > 0 && <>
           <div className="deck-list-search">
-            <input type="search" aria-label={t('filterAddedCards')} placeholder={t('filterAddedCards')} value={listQuery} onChange={event => setListQuery(event.target.value)} />
+            <input ref={listSearchRef} type="search" aria-label={t('filterAddedCards')} placeholder={t('filterAddedCards')} value={listQuery} onChange={event => setListQuery(event.target.value)} />
             <button className="icon-button" type="button" aria-label={t(modificationFilter === 'all' ? 'filterAllCards' : modificationFilter === 'unmodified' ? 'filterUnmodifiedCards' : 'filterModifiedCards')} title={t(modificationFilter === 'all' ? 'filterAllCards' : modificationFilter === 'unmodified' ? 'filterUnmodifiedCards' : 'filterModifiedCards')} data-active={modificationFilter !== 'all'} onClick={() => setModificationFilter(value => value === 'all' ? 'unmodified' : value === 'unmodified' ? 'modified' : 'all')}><Icon name={modificationFilter === 'all' ? 'filter' : modificationFilter === 'unmodified' ? 'unmodified' : 'edit'} /></button>
           </div>
           <div className="selection-bar">
-            <label className="check"><input type="checkbox" aria-label={t('selectVisibleCards')} disabled={!visibleCards.length} checked={visibleCards.length > 0 && visibleCards.every(item => selected.has(item.id))} onChange={event => {
-              const next = new Set(selected);
-              visibleCards.forEach(item => event.target.checked ? next.add(item.id) : next.delete(item.id));
-              setSelected(next);
-            }} />{selection.length ? t('selectedCount', { count: selection.length }) : t('all')}</label>
+            <label className="check">
+              <input type="checkbox" aria-label={t('selectVisibleCards')} disabled={!visibleCards.length}
+                checked={allVisibleSelected} ref={node => { if (node) node.indeterminate = visibleSelection.length > 0 && !allVisibleSelected; }}
+                onChange={event => {
+                  const checked = event.target.checked;
+                  setSelected(previous => {
+                    const next = new Set(previous);
+                    visibleCards.forEach(item => checked ? next.add(item.id) : next.delete(item.id));
+                    return next;
+                  });
+                }} />
+              <span role="status" className="selection-count">
+                {selection.length ? t('selectedCount', { count: selection.length }) : t('all')}
+                {hiddenSelectionCount > 0 && <small>{t(hiddenSelectionCount === 1 ? 'hiddenSelectionCountOne' : 'hiddenSelectionCount', { count: hiddenSelectionCount })}</small>}
+              </span>
+            </label>
             <div className="selection-actions" role="group" aria-label={t('deckActions')}>
               <button className="icon-label" aria-label={t('batchEdit')} title={t('batchEdit')} disabled={busy} onClick={() => { setError(''); setPanel('batch'); }}><Icon name="batch" /><span>{t('batch')}</span></button>
-              <button className="icon-button" aria-label={selection.length ? t(selection.length === 1 ? 'removeCardsOne' : 'removeCards', { count: selection.length }) : t('removeSelectedCards')} title={t('removeSelected')} disabled={!selection.length || busy} onClick={() => {
-                commit(value => ({ ...value, cards: value.cards.filter(item => !selected.has(item.id)) }));
-                setSelected(new Set()); setZone(undefined); setBack(false);
+              <button className="icon-button" aria-label={visibleSelection.length ? t(visibleSelection.length === 1 ? 'removeCardsOne' : 'removeCards', { count: visibleSelection.length }) : t('removeSelectedCards')}
+                aria-describedby={hiddenSelectionCount ? 'selection-removal-scope' : undefined}
+                title={t(hiddenSelectionCount ? 'removeVisibleSelection' : 'removeSelected')} disabled={!visibleSelection.length || busy} onClick={() => {
+                  const removed = new Set(visibleSelection.map(item => item.id));
+                  commit(value => ({ ...value, cards: value.cards.filter(item => !removed.has(item.id)) }));
+                  setSelected(previous => new Set([...previous].filter(id => !removed.has(id))));
+                  setZone(undefined); setBack(false);
+                  if (project.cards.length > removed.size) listSearchRef.current?.focus();
               }}><Icon name="remove" /></button>
             </div>
           </div>
+          {hiddenSelectionCount > 0 && <div className="hidden-selection">
+            <small id="selection-removal-scope">{t('selectionRemovalScope')}</small>
+            <div className="hidden-selection-actions">
+              <button type="button" onClick={() => {
+                setListQuery('');
+                setModificationFilter('all');
+                listSearchRef.current?.focus();
+              }}>{t('showAllCards')}</button>
+              <button type="button" onClick={() => {
+                setSelected(new Set(visibleSelection.map(item => item.id)));
+                listSearchRef.current?.focus();
+              }}>{t('clearHiddenSelection')}</button>
+            </div>
+          </div>}
           <ul className="deck-list">
             {visibleCards.map(item => {
               const modified = isCardModified(item) ? t('modifiedCard') : undefined;
@@ -581,19 +817,14 @@ export function App() {
                   </span>
                   <small>{item.source.set ? `${item.source.set.toUpperCase()} · ${item.source.number}` : t('customCard')}</small>
                 </button>
-                <input type="number" aria-label={t('cardQuantity', { name: item.fields.name })} key={item.count} min={1} max={999} defaultValue={item.count}
-                  onBlur={event => {
-                    const count = Math.trunc(event.target.valueAsNumber);
-                    if (count >= 1 && count <= 999 && count !== item.count) update(item.id, { count });
-                    else event.target.value = String(item.count);
-                  }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
+                <DeckQuantity key={item.count} card={item} change={count => update(item.id, { count })} />
               </li>;
             })}
           </ul>
           {!visibleCards.length && <p className="deck-list-empty" role="status">{t(modificationFilter === 'unmodified' ? 'noUnmodifiedCardsFound' : modificationFilter === 'modified' ? 'noModifiedCardsFound' : 'noAddedCardsFound')}</p>}
         </>}
       </aside>
-      <main className="stage" onDragOver={event => { if (selectedCard?.source.editable && event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDraggingImage(true); } }} onDragLeave={event => {
+      <main id="workspace-preview" className="stage" onDragOver={event => { if (selectedCard?.source.editable && event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDraggingImage(true); } }} onDragLeave={event => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingImage(false);
       }} onDrop={event => {
         event.preventDefault();
@@ -610,7 +841,11 @@ export function App() {
       }}>
         {card && renderedCard ? <>
           <div className="stage-heading">
-            <h1 title={card.fields.name || undefined}>{card.fields.name || t('untitledCard')}</h1>
+            <h1 ref={cardHeading} tabIndex={-1} title={card.fields.name || undefined}>{card.fields.name || t('untitledCard')}</h1>
+            {exportRepair && <button className="icon-label" disabled={busy || loadingImages} onClick={() => {
+              setError('');
+              setPanel(exportRepair);
+            }}><Icon name="export" />{t(exportRepair === 'sheet' ? 'returnToPdfSetup' : 'returnToZipSetup')}</button>}
           </div>
           <div className={`stage-sheet${compare && card.source.printingId ? ' is-comparing' : ''}`}>
             {card.source.printingId && <button className="icon-button compare-button" aria-label={t('compareOriginal')} title={t('compareOriginal')} aria-pressed={compare} onClick={() => {
@@ -618,12 +853,13 @@ export function App() {
               setCompare(next);
             }}><Icon name="compare" /></button>}
             <div className="stage-current">
-            {usesArt(renderedCard) && loadingImage && !(card.art || card.source.images.art) ? (
+            {missingArtwork && loadingImage ? (
               <p className="missing-printing" role="status">{t('loadingArt')}</p>
             ) : !usesArt(renderedCard) && !card.source.images.front ? <div className="missing-printing">
               <p role="status">{loadingImage ? t('loadingScan') : card.source.images.error ?? t('scanUnavailable')}</p>
               {!loadingImage && <button onClick={() => void loadPrintingImages(renderedCard)}>{t('retryLoading')}</button>}
             </div> : <Preview card={selectedRendered!} showThirds zone={zone} onZone={changeZone}
+              hideArtworkWarning={missingArtwork}
               onCrop={selectedCard?.source.editable && (selectedRendered?.frame.kind !== 'printing' || !!selectedCard.art) ? crop => updateSide(card.id, { crop }, true) : undefined} />}
             </div>
             {compare && card.source.printingId && <div className="stage-original">
@@ -634,10 +870,14 @@ export function App() {
               </div>}
             </div>}
           </div>
+          {missingArtwork && !loadingImage && <div className="artwork-recovery">
+            <p className="muted" role="status">{t('catalogArtworkUnavailable')}</p>
+            <button disabled={busy} onClick={() => void loadPrintingImages(renderedCard)}>{t('retryArtworkDownload')}</button>
+          </div>}
           {selectedCard?.source.editable && <button className={`image-dropzone${draggingImage ? ' dragging' : ''}`} disabled={busy} onClick={() => void selectAssets(false).then(image => {
             if (image) updateSide(card.id, { art: image.id, crop: defaultCrop,
               ...(selectedCard && selectedCard.frame.kind === 'printing' && sideOrientation(card, back) === 'landscape' ? { frame: { kind: 'template', template: 'full-art' } } : {}) });
-          })}>{t('dropImage')}</button>}
+          })}>{t(missingArtwork && !loadingImage ? 'chooseArtwork' : 'dropImage')}</button>}
           <div className="stage-meta">
             <span>63 × 88 mm</span>
             {card.source.images.back && <div className="toggle" role="group" aria-label={t('cardSide')}>
@@ -650,41 +890,78 @@ export function App() {
           <h1>{t('findCard')}</h1>
           <p>{t('findCardHelp')}</p>
           {catalogSearch}
+          <div className="deck-add empty-deck-add">{deckAddActions}</div>
         </div>}
       </main>
-      {card && selectedCard && selectedRendered ? <Inspector key={`${card.id}/${back}`} card={selectedCard} renderedCard={selectedRendered} sharedFrame={!!sharedFrame && !back && card.source.editable} presets={project.presets} frameSets={project.frameSets ?? []}
-        systemFonts={systemFonts}
+      {card && selectedCard && selectedRendered ? <Inspector key={`${card.id}/${back}`} card={selectedCard} renderedCard={selectedRendered} back={back} sharedFrame={!!sharedFrame && card.source.editable} presets={project.presets} frameSets={project.frameSets ?? []}
+        editCustomFrame={manageFrameSets}
         resetCard={() => {
           if (back) update(card.id, { backSide: undefined });
           else commit(value => ({ ...value, cards: value.cards.map(item => item.id === card.id ? { ...createCard(item.source, item.count), id: item.id, backSide: item.backSide } : item) }));
           setZone(undefined);
         }}
-        editFrameSet={set => saveColorSet(set, [], true)} update={patch => updateSide(card.id, patch, true)}
+        update={patch => updateSide(card.id, patch, true)}
         selectAssets={selectAssets} choosePrinting={() => choosePrinting('printings')} zone={zone} selectZone={setZone}
         fullArtBase={project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase}
         savePreset={name => {
-          if (card.frame.kind !== 'custom') return;
-          const { asset, zones, textColor, fontFamily } = card.frame;
+          if (selectedCard.frame.kind !== 'custom') return;
+          const { asset, zones, textColor, fontFamily, appearance } = selectedCard.frame;
           const existing = project.presets.find(preset => preset.name.localeCompare(name, 'it', { sensitivity: 'base' }) === 0);
           if (!existing && project.presets.length >= 200) { setError(t('presetLimit')); return; }
-          commit(value => ({ ...value, presets: [...value.presets.filter(preset => preset.id !== existing?.id), { id: existing?.id ?? crypto.randomUUID(), name, asset, zones, textColor, fontFamily }] }));
+          commit(value => ({ ...value, presets: [...value.presets.filter(preset => preset.id !== existing?.id), { id: existing?.id ?? crypto.randomUUID(), name, asset, zones, textColor, fontFamily, appearance }] }));
           setNotice({ key: existing ? 'presetUpdated' : 'presetSaved' });
         }} />
-        : <aside className="inspector empty-inspector"><div className="panel-title"><h2>{t('properties')}</h2></div><p className="muted">{t('propertiesHelp')}</p></aside>}
+        : <aside id="workspace-properties" className="inspector empty-inspector"><div className="panel-title"><h2>{t('properties')}</h2></div><p className="muted">{t('propertiesHelp')}</p></aside>}
     </div>
     <footer className="status" aria-live="polite">
-      <span className="save-status">{saveError ? <><span className="error">{saveError}</span> <button onClick={() => persist(project)}>{t('retry')}</button></> : saving ? t('saving') : t('localProject')}</span>
+      <span className="save-status">{saveError ? <><span className="error">{t('projectSaveFailed', { project: project.name })}</span> <button onClick={() => void persist(project)}>{t('retrySave')}</button></> : saving ? t('saving') : t('localProject')}</span>
       <span className={error && !panel ? 'error' : ''}>{error && !panel ? error : busy && !panel ? t('loading') : notice && t(notice.key, notice.count === undefined ? undefined : { count: notice.count })}</span>
     </footer>
-    {panel && <Dialog title={t(titles[panel])} busy={busy} wide={panel === 'cards' || panel === 'templates'}
+    {panel && <Dialog title={t(titles[panel])} busy={busy || (panel === 'switch-project' && saving)} wide={panel === 'cards' || panel === 'templates'}
       back={panel === 'sheet' || panel === 'cards' ? () => setPanel('print') : undefined} close={() => {
         if (panel === 'templates') lastHistory.current = 0;
+        if (panel === 'switch-project') setSwitchTarget('');
+        if (panel === 'print' || panel === 'sheet' || panel === 'cards') clearExportRepair();
         setError('');
         setPanel(undefined);
       }}>
       {error && <p className="error" role="alert">{error}</p>}
-      {panel === 'templates' && editedAppearance && <TemplateEditor template={template} selectTemplate={selectTemplate}
+      {panel === 'switch-project' && <>
+        <p role="status">{saving ? t('saving') : t('projectSaveFailed', { project: project.name })}</p>
+        <div className="dialog-actions">
+          <button disabled={saving} onClick={() => { setSwitchTarget(''); setPanel(undefined); }}>{t('keepEditing')}</button>
+          <button disabled={saving} onClick={() => switchProject(switchTarget)}>{t('switchWithoutSaving')}</button>
+          <button className="primary" disabled={saving} onClick={() => void retryProjectSwitch()}>{t('retrySave')}</button>
+        </div>
+      </>}
+      {panel === 'templates' && editedAppearance && <TemplateEditor tab={editorTab} selectTab={selectEditorTab}
         appearance={editedAppearance} activeCard={renderedCard} cards={projectCards(project)} fonts={systemFonts} change={changeTemplate}
+        customFrame={editedCustom} reset={resetEditedFrame}
+        customControls={editorTab === 'custom' && <>
+          <label>{t('frameSets')}<Select value={customFrameId} onChange={event => {
+            lastHistory.current = 0;
+            setCustomFrameId(event.target.value);
+          }}>
+            <option value="">{t('newSet')}</option>
+            {project.frameSets?.map(set => <option key={set.id} value={set.id}>{set.name}</option>)}
+            {cardSet && !project.frameSets?.some(set => set.id === cardSet.id)
+              && <option value={cardSet.id}>{cardSet.name}</option>}
+            {project.frame?.kind === 'custom' && <option value="project">{t('projectCustomFrame')}</option>}
+            {selectedCard?.frame.kind === 'custom' && <option value="card">{t('existingPngFrame')}</option>}
+            {project.presets.map(preset => <option key={preset.id} value={'preset/' + preset.id}>{preset.name}</option>)}
+          </Select></label>
+          {editedCustom?.kind === 'custom'
+            ? <img className="single-frame-thumbnail" src={assetURL(editedCustom.asset)} alt={t('pngLoaded')} />
+            : <FrameSets key={customFrameId} sets={project.frameSets ?? []} existing={editedCustom?.set}
+              count={sharedFrame ? 0 : batchCards.filter(item => item.source.editable).length} save={(set, apply) => {
+                if (live.current?.id !== project.id) return;
+                saveColorSet(set, apply ? batchCards : []);
+                setZone(undefined);
+                if (apply) setPanel(undefined);
+                else setCustomFrameId(set.id);
+                setNotice({ key: apply ? 'setSavedApplied' : 'setSaved' });
+              }} />}
+        </>}
         saving={saving} saveError={saveError} retry={() => persist(project)} />}
       {panel === 'deck' && <>
         <div className="dialog-tools">
@@ -695,31 +972,30 @@ export function App() {
         </div>
         <label>{t('decklist')}<textarea rows={9} value={deckText} onChange={event => setDeckText(event.target.value)} disabled={busy}
           placeholder={'2 Lightning Bolt (2X2) 117\n1 Sol Ring\nForest'} /></label>
-        {deckProgress && <p role="status">{deckProgress}</p>}
+        <p className="deck-import-status" role="status">{deckProgress || (deckErrors.length ? [
+          deckImported ? t(deckImported === 1 ? 'cardsImportedOne' : 'cardsImported', { count: deckImported }) : '',
+          t(deckErrors.length === 1 ? 'deckImportAttentionOne' : 'deckImportAttention', { count: deckErrors.length })
+        ].filter(Boolean).join(' · ') : '')}</p>
         {deckErrors.length > 0 && <ul className="error messages">{deckErrors.map((entry, i) => <li key={i}>{entry}</li>)}</ul>}
         <div className="dialog-actions">
           <button className="primary" disabled={busy || !deckText.trim()} onClick={importDeck}>{t('importCards')}</button>
         </div>
       </>}
-      {panel === 'batch' && <Batch cards={batchCards} sharedFrame={!!sharedFrame} presets={project.presets} fullArtBase={project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase} frameSets={project.frameSets ?? []} close={() => setPanel(undefined)} apply={updates => {
+      {panel === 'batch' && <Batch cards={batchCards} selectionCount={selection.length} hiddenSelectionCount={hiddenSelectionCount}
+        sharedFrame={!!sharedFrame} presets={project.presets} fullArtBase={project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase} frameSets={project.frameSets ?? []} close={() => setPanel(undefined)} apply={updates => {
         const map = new Map(updates.map(item => [item.id, item]));
         commit(value => ({ ...value, cards: value.cards.map(item => map.get(item.id) ?? item) }));
         setNotice({ key: updates.length === 1 ? 'changedCardsOne' : 'changedCards', count: updates.length }); setPanel(undefined);
       }} />}
-      {panel === 'frame-sets' && <FrameSets sets={project.frameSets ?? []} active={sharedFrame?.kind === 'color-set' ? sharedFrame.set.id : renderedCard?.frame.kind === 'color-set' ? renderedCard.frame.set.id : undefined}
-        count={sharedFrame ? 0 : batchCards.filter(item => item.source.editable).length} save={(set, apply) => {
-          saveColorSet(set, apply ? batchCards : []);
-          setZone(undefined);
-          setPanel(undefined);
-          setNotice({ key: apply ? 'setSavedApplied' : 'setSaved' });
-        }} />}
       {panel === 'print' && <PrintChoices cards={projectCards(project, project.cards.slice(0, 9))} choose={setPanel} />}
-      {panel === 'cards' && <CardExportPanel project={project} onBusy={setBusy} onExport={() => {
-        setNotice({ key: 'zipSaved' }); setPanel(undefined);
-      }} />}
-      {panel === 'sheet' && <PrintPanel project={project} onBusy={setBusy} onExport={() => {
-        setNotice({ key: 'pdfSaved' }); setPanel(undefined);
-      }} />}
+      {panel === 'cards' && <CardExportPanel project={project} initialDraft={zipDraft} onBusy={setBusy} onOpenCard={(id, back, draft) => {
+        setZipDraft(draft);
+        openCardForExport('cards', id, back);
+      }} onExport={() => finishExport('zipSaved')} />}
+      {panel === 'sheet' && <PrintPanel project={project} initialDraft={pdfDraft} onBusy={setBusy} onOpenCard={(id, back, draft) => {
+        setPdfDraft(draft);
+        openCardForExport('sheet', id, back);
+      }} onExport={() => finishExport('pdfSaved')} />}
       {panel === 'frames' && <FrameGallery editions={editions} active={card?.frame.kind === 'printing' ? card.source.printingId : undefined}
         pending={busy} hasArt={!!(card?.art ?? card?.source.images.art)} select={(printing, keepArt) => replacePrinting(printing, true, keepArt)} />}
       {panel === 'printings' && <div className="edition-list">

@@ -183,11 +183,12 @@ export async function getCard(id: string, includeImages = true, locale: Locale =
   };
   if (!includeImages) return result;
   const getFace = (urls: typeof frontImages) => [urls?.display, urls?.large, urls?.jpeg, urls?.normal, urls?.png, urls?.grid];
+  const getArt = (urls: typeof frontImages) => [urls?.art, urls?.art_crop];
   const [front, back, art, backArt] = await Promise.allSettled([
     image(getFace(frontImages), card.name),
     image(getFace(backImages), card.name),
-    image([frontImages?.art, frontImages?.art_crop], card.name),
-    image([backImages?.art, backImages?.art_crop], card.name)
+    image(getArt(frontImages), card.name),
+    image(getArt(backImages), card.name)
   ]);
   result.images = {
     front: front.status === 'fulfilled' ? front.value : undefined,
@@ -199,6 +200,8 @@ export async function getCard(id: string, includeImages = true, locale: Locale =
       : undefined
   };
   if (savedCards.size >= 500) savedCards.delete(savedCards.keys().next().value!);
-  if (result.images.front && (!backImages || result.images.back) && (!editable || !(frontImages?.art || frontImages?.art_crop) || result.images.art)) savedCards.set(id, result);
+  if (result.images.front && (!backImages || result.images.back)
+    && (!editable || !getArt(frontImages).some(Boolean) || result.images.art)
+    && (!getArt(backImages).some(Boolean) || result.images.backArt)) savedCards.set(id, result);
   return result;
 }

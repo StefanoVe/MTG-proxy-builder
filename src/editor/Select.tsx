@@ -62,10 +62,17 @@ export function Select({ children, value, onChange, disabled, className, title, 
       if (!options[next].disabled) { setActive(next); break; }
     }
   }
-  return <div className={`select-control${className ? ` ${className}` : ''}`}>
-    <button ref={trigger} type="button" className="select-trigger" data-value={String(value)} disabled={disabled} title={title} aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? id : undefined} aria-activedescendant={open ? `${id}-option-${active}` : undefined}
+  return <div className={`select-control${className ? ` ${className}` : ''}`} onKeyDown={event => {
+    if (event.key !== 'Escape' || (!open && !event.repeat)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setOpen(false);
+    trigger.current?.focus();
+  }}>
+    <button ref={trigger} type="button" role="combobox" className="select-trigger" data-value={String(value)} disabled={disabled} title={title}
+      aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open}
+      aria-controls={open ? id : undefined} aria-activedescendant={open && options[active] ? `${id}-option-${active}` : undefined}
       onClick={() => open ? setOpen(false) : show()} onKeyDown={event => {
-        if (event.key === 'Escape') { setOpen(false); return; }
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); if (!open) show(); else move(event.key === 'ArrowDown' ? 1 : -1); }
         else if (open && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); choose(active); }
         else if (open && event.key === 'Tab') setOpen(false);

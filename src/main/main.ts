@@ -1,6 +1,6 @@
 import { errorMessage, locales, LocalizedError, resolveLocale, translate } from '../shared/i18n.js';
 import type { Locale } from '../shared/i18n.js';
-import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
 import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron';
 import { execFile } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { projectSchema } from '../shared/model.js';
 import { cardArchiveMaxBytes } from '../shared/print.js';
 import { getCard, printings, resolveDeck, search } from './catalog.js';
+import { checkForUpdate, releasesURL } from './updates.js';
 import { atomicWrite, getProject, imageLimit, imageResponse, listProjects, readLimitedFile, saveProject, storeImage } from './storage.js';
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'proxy-asset', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
@@ -26,6 +27,7 @@ const idSchema = z.uuid();
 const imageExtensions = ['png', 'jpg', 'jpeg', 'webp'];
 const execFileAsync = promisify(execFile);
 let systemFonts: Promise<string[]> | undefined;
+let updateCheck: Promise<string | null> | undefined;
 
 async function listSystemFonts(): Promise<string[]> {
   if (!systemFonts) systemFonts = (async () => {
@@ -64,6 +66,8 @@ async function choose(options: OpenDialogOptions) {
 
 handle('locale:get', z.tuple([]), () => locale);
 handle('locale:set', z.tuple([z.enum(locales)]), next => { locale = next; });
+handle('updates:check', z.tuple([]), () => updateCheck ??= checkForUpdate(app.getVersion()));
+handle('updates:open-releases', z.tuple([]), () => shell.openExternal(releasesURL));
 handle('projects:list', z.tuple([]), listProjects);
 handle('fonts:list', z.tuple([]), listSystemFonts);
 handle('projects:open', z.tuple([idSchema]), getProject);
@@ -137,7 +141,7 @@ handle('files:card-archive', z.tuple([z.string().max(100), bytes]), async (name,
 
 function createWindow() {
   const editor = new BrowserWindow({
-    width: 1400, height: 900, minWidth: 940, minHeight: 660, backgroundColor: '#202830',
+    width: 1400, height: 900, minWidth: 320, minHeight: 520, backgroundColor: '#202830',
     webPreferences: {
       preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)),
       sandbox: true, contextIsolation: true, nodeIntegration: false

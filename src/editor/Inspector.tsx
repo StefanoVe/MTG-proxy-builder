@@ -2,13 +2,14 @@ import { Dropdown } from './Dropdown.js';
 import { Select } from './Select.js';
 import type { MessageKey } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
+import { cardColorKeys } from './card-colors.js';
 import { cardZones } from './card-zones.js';
 import { colorsForFrame } from '../shared/frame-colors.js';
-import { newTemplate, templateAppearance } from '../shared/templates.js';
+import { frameAppearance, newTemplate, presetFrame } from '../shared/templates.js';
 import { useState } from 'react';
 import { detectedArtZone } from './compose.js';
 import { cardArtZone, defaultCrop, frameColorNames, isTemplate, printingFields, templateNames } from '../shared/model.js';
-import type { Asset, Card, CardFontFamily, FrameSet, Preset, Rect, TemplateAppearance, Zones } from '../shared/model.js';
+import type { Asset, Card, FrameSet, Preset, Rect, TemplateAppearance, Zones } from '../shared/model.js';
 import { isCardModified } from '../shared/model.js';
 import { Icon } from './Icon.js';
 import type { IconName } from './Icon.js';
@@ -58,14 +59,6 @@ export function FontPicker({ value, fonts, onChange }: { value: string; fonts: s
   </div>;
 }
 
-function FrameTextControls({ color, fontFamily, fonts, change }: { color: string; fontFamily: CardFontFamily; fonts: string[]; change: (color: string, fontFamily: CardFontFamily) => void }) {
-  const { t } = useI18n();
-  return <div className="frame-text-controls">
-    <label className="color-field"><FieldLabel icon="text">{t('textColor')}</FieldLabel><input type="color" value={color} onChange={event => change(event.target.value, fontFamily)} /></label>
-    <FontPicker value={fontFamily} fonts={fonts} onChange={font => change(color, font)} />
-  </div>;
-}
-
 export function ZoneFields({ rect, update }: { rect: Rect; update: (rect: Rect) => void }) {
   const { t } = useI18n();
   return <div className="form-row zone-fields">
@@ -103,14 +96,13 @@ function EditionDetails({ card }: { card: Card }) {
   </div>;
 }
 
-export function Inspector({ card, renderedCard, sharedFrame, presets, update, resetCard, selectAssets, choosePrinting, zone, selectZone, savePreset, fullArtBase, frameSets, editFrameSet, systemFonts }: {
-  card: Card; renderedCard: Card; sharedFrame: boolean; presets: Preset[]; update: (patch: Partial<Card>) => void;
+export function Inspector({ card, renderedCard, back, sharedFrame, presets, update, resetCard, selectAssets, choosePrinting, zone, selectZone, savePreset, fullArtBase, frameSets, editCustomFrame }: {
+  card: Card; renderedCard: Card; back: boolean; sharedFrame: boolean; presets: Preset[]; update: (patch: Partial<Card>) => void;
   resetCard: () => void;
   selectAssets: (frame: boolean) => Promise<Asset | undefined>;
   choosePrinting: () => void; zone: keyof Zones | undefined; selectZone: (zone: keyof Zones | undefined) => void;
   savePreset: (name: string) => void;
-  frameSets: FrameSet[]; editFrameSet: (set: FrameSet) => void;
-  systemFonts: string[];
+  frameSets: FrameSet[]; editCustomFrame: () => void;
   fullArtBase?: TemplateAppearance;
 }) {
   const { t, locale } = useI18n();
@@ -119,7 +111,7 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, re
   const custom = card.frame.kind === 'custom' ? card.frame : undefined;
   const colorSet = renderedCard.frame.kind === 'color-set' ? renderedCard.frame.set : undefined;
   const original = renderedCard.frame.kind === 'printing';
-  const templateFrame = renderedCard.frame.kind === 'template' ? renderedCard.frame : undefined;
+  const appearance = frameAppearance(renderedCard.frame);
   const editableFrameZone = !original;
   const visibleFields = original ? printingFields(card.source) : card.fields;
   const art = original ? !!card.art : !!(card.art ?? card.source.images.art);
@@ -144,7 +136,7 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, re
     if (artZone) update({ frame: { kind: 'printing', artZone } });
     selectZone('art');
   }
-  if (!card.source.editable) return <aside className="inspector">
+  if (!card.source.editable) return <aside id="workspace-properties" className="inspector">
     <div className="panel-title"><h2>{t('printing')}</h2><button className="icon-button" aria-label={t('resetCard')} title={t('resetCard')} disabled={!isCardModified(card)} onClick={resetCard}><Icon name="reset" /></button></div>
     <div className="fields">
       <h3>{card.source.name}</h3>
@@ -161,7 +153,7 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, re
     </div>
   </aside>;
 
-  return <aside className="inspector">
+  return <aside id="workspace-properties" className="inspector">
     <div className="panel-title"><h2>{t('properties')}</h2><button className="icon-button" aria-label={t('resetCard')} title={t('resetCard')} disabled={!isCardModified(card)} onClick={resetCard}><Icon name="reset" /></button></div>
     <div className="tabs" role="group" aria-label={t('cardProperties')}>
       {(['card', 'art', 'frame'] as const).map(item => <button key={item} aria-pressed={item === tab}
@@ -187,7 +179,7 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, re
           <label><FieldLabel icon="stats">{t('defense')}</FieldLabel><input value={visibleFields.defense} maxLength={12} onChange={event => setField('defense', event.target.value)} /></label>
           : <div className="form-row"><label><FieldLabel icon="stats">{t('power')}</FieldLabel><input value={visibleFields.power} maxLength={12} onChange={event => setField('power', event.target.value)} /></label>
             <label><FieldLabel icon="stats">{t('toughness')}</FieldLabel><input value={visibleFields.toughness} maxLength={12} onChange={event => setField('toughness', event.target.value)} /></label></div>}
-        <label><FieldLabel icon="text">{t('helpText')}</FieldLabel><input value={visibleFields.artist} maxLength={300} onChange={event => setField('artist', event.target.value)} /></label>
+        <label><FieldLabel icon="artist">{t('artistCredit')}</FieldLabel><input value={visibleFields.artist} maxLength={300} onChange={event => setField('artist', event.target.value)} /></label>
         <EditionDetails card={card} />
       </>}
       {tab === 'art' && <>
@@ -231,7 +223,7 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, re
       </>}
       {tab === 'frame' && <>
         <SectionTitle icon="frames">{t('frame')}</SectionTitle>
-        {sharedFrame ? <p className="muted">{t('projectFrameApplied')}</p> : <label>{t('template')}<Select value={colorSet?.id ?? (card.frame.kind === 'template' ? card.frame.template : card.frame.kind)} onChange={event => {
+        {sharedFrame ? <p className="muted">{t(back ? 'projectFrameAppliedBack' : 'projectFrameApplied')}</p> : <label>{t('template')}<Select value={colorSet?.id ?? (card.frame.kind === 'template' ? card.frame.template : card.frame.kind)} onChange={event => {
           const value = event.target.value;
           if (isTemplate(value)) update({ frame: newTemplate(value, fullArtBase) });
           else if (value === 'printing') update({ frame: { kind: 'printing' } });
@@ -250,10 +242,10 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, re
           {card.frame.kind === 'custom' && <option value="custom">{t('existingPngFrame')}</option>}
           {(card.frame.kind === 'modern' || card.frame.kind === 'classic') && <option value={card.frame.kind}>{t('projectFrame')}</option>}
         </Select></label>}
-        {templateFrame && <fieldset className="template-settings">
+        {appearance && <fieldset className="template-settings">
           <legend>{t('cardDividers')}</legend>
           {([['titleDivider', t('belowTitle')], ['divider', t('aboveRules')]] as const).map(([key, label]) => <label className="check" key={key}>
-            <input type="checkbox" checked={card.dividerOverrides?.[key] ?? templateAppearance(templateFrame)[key] ?? false}
+            <input type="checkbox" checked={card.dividerOverrides?.[key] ?? appearance[key] ?? false}
               onChange={event => update({ dividerOverrides: { ...card.dividerOverrides, [key]: event.target.checked } })} />{label}
           </label>)}
           {(card.dividerOverrides?.titleDivider !== undefined || card.dividerOverrides?.divider !== undefined) &&
@@ -285,21 +277,16 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, re
         </>}
 
         {colorSet && <>
-          <p className="muted">{t('frameApplied', { colors: colorsForFrame(card.source.colors, colorSet.mix).map(color => t(frameColorNames[color])).join(' / ') })}</p>
-          <FrameTextControls color={colorSet.textColor ?? '#24211e'} fontFamily={colorSet.fontFamily ?? 'Georgia'} fonts={systemFonts} change={(textColor, fontFamily) => editFrameSet({ ...colorSet, textColor, fontFamily })} />
+          <p className="muted">{t('frameApplied', { colors: colorsForFrame(cardColorKeys(renderedCard), colorSet.mix).map(color => t(frameColorNames[color])).join(' / ') })}</p>
         </>}
+        {(colorSet || renderedCard.frame.kind === 'custom') && <ToolButton icon="settings" label={t('editCustomFrame')} onClick={editCustomFrame} />}
         {!sharedFrame && !!presets.length && <label>{t('applyPreset')}<Select value="" onChange={event => {
           const preset = presets.find(item => item.id === event.target.value);
-          if (preset) update({ frame: { kind: 'custom', asset: preset.asset, zones: preset.zones,
-            textColor: preset.textColor, fontFamily: preset.fontFamily } });
+          if (preset) update({ frame: presetFrame(preset) });
         }}><option value="">{t('chooseFrame')}</option>
           {presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
         </Select></label>}
         {!sharedFrame && custom && <>
-          <fieldset className="template-settings">
-            <legend>{t('text')}</legend>
-            <FrameTextControls color={custom.textColor ?? '#24211e'} fontFamily={custom.fontFamily ?? 'Georgia'} fonts={systemFonts} change={(textColor, fontFamily) => update({ frame: { ...custom, textColor, fontFamily } })} />
-          </fieldset>
           <form className="preset-form" onSubmit={event => {
             event.preventDefault();
             if (presetName.trim()) { savePreset(presetName.trim()); setPresetName(''); }

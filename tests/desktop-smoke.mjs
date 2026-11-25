@@ -27,13 +27,18 @@ try {
   const language = page.locator('.language-select .select-trigger');
   await choose(language, 'en');
   await page.getByRole('heading', { name: 'Find a card' }).waitFor({ timeout: 10000 });
-  await page.getByRole('button', { name: 'Import decklist' }).click();
+  const desktopViewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  await page.setViewportSize({ width: 375, height: 812 });
+  const emptyStage = page.locator('.stage');
+  assert.ok(await emptyStage.getByRole('button', { name: 'Add blank card' }).isVisible());
+  await emptyStage.getByRole('button', { name: 'Import decklist' }).click();
   const decklist = page.getByRole('textbox', { name: 'Decklist', exact: true });
   await decklist.fill('0 Mountain');
   await page.getByRole('button', { name: 'Import cards' }).click();
   await page.getByText('Line 1 · 0 Mountain').waitFor();
   await decklist.clear();
   await page.getByRole('button', { name: 'Close' }).click();
+  await page.setViewportSize(desktopViewport);
   await page.reload();
   await page.getByRole('heading', { name: 'Find a card' }).waitFor();
   assert.equal(await page.locator('html').getAttribute('lang'), 'en');
@@ -42,6 +47,48 @@ try {
   await page.getByRole('heading', { name: 'Cerca una carta' }).waitFor({ timeout: 10000 });
   assert.equal(await page.locator('html').getAttribute('lang'), 'it');
   await page.screenshot({ path: join(paths, 'empty.png') });
+  await page.getByRole('button', { name: 'Aggiungi carta vuota' }).click();
+  await choose(page.locator('.deck').getByLabel('Cornice del progetto'), 'full-art');
+  await page.getByRole('button', { name: 'Esporta', exact: true }).click();
+  await page.getByRole('button', { name: 'PDF per la stampa' }).click();
+  const pdfSetup = page.getByRole('dialog', { name: 'Esporta PDF' });
+  await pdfSetup.getByText('Importa un’illustrazione per questa cornice.', { exact: false }).waitFor();
+  assert.ok(await pdfSetup.getByRole('button', { name: 'Salva PDF' }).isDisabled());
+  const paperSelect = pdfSetup.getByLabel(/^Carta/);
+  await choose(paperSelect, 'Letter');
+  await paperSelect.press('ArrowDown');
+  await pdfSetup.getByRole('listbox').waitFor();
+  await page.keyboard.press('Escape');
+  await pdfSetup.getByRole('listbox').waitFor({ state: 'hidden' });
+  assert.equal(await paperSelect.getAttribute('data-value'), 'Letter');
+  assert.ok(await paperSelect.evaluate(element => document.activeElement === element));
+  await page.keyboard.press('Escape');
+  await pdfSetup.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Esporta', exact: true }).click();
+  await page.getByRole('button', { name: 'PDF per la stampa' }).click();
+  await choose(paperSelect, 'Letter');
+  await pdfSetup.getByRole('button', { name: 'Apri la prima carta da correggere' }).click();
+  await pdfSetup.waitFor({ state: 'hidden' });
+  await page.waitForFunction(() => document.activeElement === document.querySelector('.stage-heading h1'));
+  await page.getByRole('button', { name: 'Torna alle impostazioni PDF' }).click();
+  await pdfSetup.waitFor();
+  assert.equal(await paperSelect.getAttribute('data-value'), 'Letter');
+  await pdfSetup.getByRole('button', { name: 'Chiudi', exact: true }).click();
+  await page.getByRole('button', { name: 'Esporta', exact: true }).click();
+  await page.getByRole('button', { name: 'Immagini delle carte (ZIP)' }).click();
+  const zipSetup = page.getByRole('dialog', { name: 'Immagini delle carte (ZIP)' });
+  const formatSelect = zipSetup.getByLabel(/^Formato/);
+  await choose(formatSelect, 'jpg');
+  await zipSetup.getByRole('button', { name: 'Salva ZIP' }).click();
+  await zipSetup.getByRole('button', { name: 'Apri la carta da correggere' }).click();
+  await page.getByRole('button', { name: 'Torna alle impostazioni ZIP' }).click();
+  await zipSetup.waitFor();
+  assert.equal(await formatSelect.getAttribute('data-value'), 'jpg');
+  await zipSetup.getByRole('button', { name: 'Chiudi', exact: true }).click();
+  const undoChange = page.getByRole('button', { name: 'Annulla ultima modifica' });
+  await undoChange.click();
+  await undoChange.click();
+  await page.getByRole('heading', { name: 'Cerca una carta' }).waitFor();
   const assetFiles = await page.evaluate(() => {
     const canvas = document.createElement('canvas');
     canvas.width = 744;
@@ -87,11 +134,15 @@ try {
     const cardFaces = ['Sole', 'Luna'].map(name => ({ name, image_uris: { art: 'https://cards.scryfall.io/art/demo.webp', display: 'https://cards.scryfall.io/display/demo.webp' } }));
     const double = { ...exact, id: 'd0000000-0000-4000-8000-000000000002', name: 'Sole // Luna', layout: 'transform',
       collector_number: '5', image_uris: undefined, card_faces: cardFaces };
+    const autocompleteReady = new Promise(resolve => { globalThis.finishSmokeSearch = resolve; });
     globalThis.fetch = async (url, init) => {
       const path = new URL(url);
       if (path.hostname === 'cards.scryfall.io') return new Response(Buffer.from(catalog.split(',')[1], 'base64'), { headers: { 'content-type': 'image/webp' } });
       if (path.pathname === '/cards/named') return path.searchParams.get('exact') === exact.name ? Response.json(exact) : new Response(null, { status: 404 });
-      if (path.pathname === '/cards/autocomplete') return Response.json({ data: [exact.name] });
+      if (path.pathname === '/cards/autocomplete') {
+        if (path.searchParams.get('q') === 'Lightning Bol') await autocompleteReady;
+        return Response.json({ data: [exact.name] });
+      }
       if (path.pathname === '/cards/collection') return Response.json({
         data: JSON.parse(init.body).identifiers.flatMap(item => item.name === exact.name || item.set === exact.set ? [exact] : item.name === double.name ? [double] : [])
       });
@@ -101,10 +152,20 @@ try {
     };
   }, { artFile, frameFile, pdfPath, zipPath, catalog: assetFiles.catalog });
   const input = page.getByRole('searchbox', { name: 'Nome della carta da cercare' });
+  const search = page.getByRole('search').getByRole('button', { name: 'Cerca carta' });
+  assert.equal(await search.isDisabled(), true);
   await input.fill('Lightning Bol');
   await input.press('Enter');
-  await page.locator('.results').getByRole('button', { name: /Lightning Bolt/ }).click();
+  await page.locator('.search-feedback').getByText('Ricerca nel catalogo…', { exact: true }).waitFor();
+  assert.equal(await search.isDisabled(), true);
+  await electron.evaluate(() => globalThis.finishSmokeSearch());
+  const match = page.locator('.results').getByRole('button', { name: /Lightning Bolt/ });
+  await match.waitFor();
+  await input.press('ArrowDown');
+  assert.equal(await match.evaluate(button => button === document.activeElement), true);
+  await page.keyboard.press('Enter');
   await page.getByRole('heading', { name: 'Lightning Bolt', exact: true }).waitFor();
+  await page.waitForFunction(() => document.activeElement === document.querySelector('.stage-heading h1'));
   await input.fill('Lightning Bolt');
   const result = await page.evaluate(() => window.proxy.search('Lightning Bolt'));
   assert.ok(result.exact);
@@ -130,15 +191,42 @@ try {
   await page.getByRole('button', { name: 'Cornice', exact: true }).click();
   await electron.evaluate(() => globalThis.setSmokeFiles('frame'));
   await page.getByRole('button', { name: 'Set di cornici', exact: true }).click();
+  const frameEditor = page.getByRole('dialog', { name: 'Editor cornici del progetto' });
+  assert.equal(await frameEditor.getByRole('button', { name: 'Cornici custom', exact: true }).getAttribute('aria-pressed'), 'true');
   await page.getByLabel('Nome del set').fill('Cornici prova');
   for (const color of ['Bianco', 'Blu', 'Nero', 'Rosso', 'Verde', 'Incolore']) {
     await page.getByRole('button', { name: 'Carica ' + color, exact: true }).click();
     await page.getByRole('button', { name: 'Sostituisci ' + color, exact: true }).waitFor();
   }
+  await frameEditor.getByRole('button', { name: 'Salva set', exact: true }).click();
+  const fontSize = frameEditor.getByRole('slider', { name: 'Dimensione massima del font' });
+  await frameEditor.getByRole('button', { name: 'Testo ed effetti', exact: true }).click();
+  assert.equal(await frameEditor.getByLabel('Testo da formattare').count(), 0);
+  assert.equal(await fontSize.count(), 0);
+  await frameEditor.getByRole('button', { name: 'Zone', exact: true }).click();
+  const editableZone = frameEditor.getByLabel('Zona da modificare');
+  await choose(editableZone, 'art');
+  assert.equal(await fontSize.count(), 0);
+  await choose(editableZone, 'title');
+  await choose(frameEditor.getByLabel('Allineamento orizzontale'), 'right');
+  await fontSize.press('Home');
+  assert.equal(await fontSize.inputValue(), '8');
+  await choose(editableZone, 'artist');
+  assert.equal(await fontSize.inputValue(), '20');
+  await frameEditor.getByRole('button', { name: 'Colori', exact: true }).click();
+  assert.equal(await frameEditor.locator('.template-controls-body:visible').evaluate(node => node.scrollWidth <= node.clientWidth), true);
+  await frameEditor.screenshot({ path: join(paths, 'custom-frames.png') });
   await page.getByLabel('Applica a 1 carta').check();
   await page.getByRole('button', { name: 'Salva e applica' }).click();
   await page.getByText('Set salvato e applicato').waitFor();
   await page.getByText('Cornice applicata · Rosso').waitFor();
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    const saved = await window.proxy.open(project.id);
+    const frame = saved.cards[0].frame;
+    return frame.kind === 'color-set' && frame.set.appearance?.textStyles?.title?.align === 'right'
+      && frame.set.appearance.textStyles.title.size === 8;
+  });
   const projectFrame = page.locator('.deck').getByLabel('Cornice del progetto');
   await choose(projectFrame, 'import');
   await page.waitForFunction(() => document.querySelector('.deck-controls .select-trigger')?.dataset.value === 'custom');
@@ -150,6 +238,7 @@ try {
   await page.getByLabel('Lista delle carte').fill('99 Sole // Luna\n1 Non esiste');
   await page.getByRole('button', { name: 'Importa carte' }).click();
   await page.getByText('Carta o edizione non trovata · Non esiste').waitFor();
+  await page.getByRole('dialog', { name: 'Importa lista' }).getByText('Importata 1 carta · 1 riga da correggere', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Chiudi', exact: true }).click();
   await page.locator('.deck-list').getByRole('button', { name: /Lightning Bolt/ }).click();
   await electron.evaluate(() => globalThis.setSmokeFiles('art'));
@@ -160,12 +249,56 @@ try {
   await page.getByRole('button', { name: 'Annulla ultima modifica' }).click();
   await page.getByText('Modifica annullata').waitFor();
   assert.equal(await projectFrame.getAttribute('data-value'), 'full-art');
-  await page.getByRole('button', { name: 'Stampa', exact: true }).click();
+  await page.getByLabel('Testo della carta').fill('Pesca una carta. {R}');
+  await page.getByRole('button', { name: 'Editor cornici', exact: true }).click();
+  await page.getByRole('button', { name: 'Simboli', exact: true }).click();
+  await choose(page.getByLabel('Simbolo', { exact: true }), 'R');
+  const symbolFile = page.getByLabel('File del simbolo');
+  const symbolPng = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 16;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#00ff00';
+    context.fillRect(0, 0, 16, 16);
+    return canvas.toDataURL().split(',')[1];
+  });
+  await symbolFile.setInputFiles({ name: 'mana.png', mimeType: 'image/png', buffer: Buffer.from(symbolPng, 'base64') });
+  await page.getByRole('button', { name: 'Ripristina immagine' }).waitFor();
+  const verifySymbolPixels = (selector, icon, text) => page.waitForFunction(({ selector, icon, text }) => {
+    const canvas = document.querySelector(selector);
+    if (canvas?.width !== 744) return false;
+    const context = canvas.getContext('2d');
+    function contains(color, x, y, width, height) {
+      const data = context.getImageData(x, y, width, height).data;
+      for (let index = 0; index < data.length; index += 4) {
+        if (data[index] === color[0] && data[index + 1] === color[1] && data[index + 2] === color[2]) return true;
+      }
+      return false;
+    }
+    return contains(icon, 640, 30, 104, 80) && contains(icon, 30, 740, 650, 220)
+      && (!text || contains(text, 30, 30, 500, 80));
+  }, { selector, icon, text });
+  await verifySymbolPixels('.template-preview canvas', [0, 255, 0]);
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#ff00ff" d="M0 0H16V16H0Z"/></svg>';
+  await symbolFile.setInputFiles({ name: 'mana.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(svg) });
+  await page.getByLabel('Colore del testo dalla carta').check();
+  await page.getByLabel('Colore del testo · {R}', { exact: true }).fill('#00ffff');
+  await verifySymbolPixels('.template-preview canvas', [255, 0, 255], [0, 255, 255]);
+  await page.screenshot({ path: join(paths, 'frame-symbols.png') });
+  await page.getByRole('button', { name: 'Chiudi', exact: true }).click();
+  await page.getByRole('button', { name: 'Esporta', exact: true }).click();
   await page.screenshot({ path: join(paths, 'print-choices.png') });
-  await page.getByRole('button', { name: 'Carte singole' }).click();
+  await page.getByRole('button', { name: 'Immagini delle carte (ZIP)' }).click();
+  await choose(formatSelect, 'png');
   await choose(page.getByLabel('Abbondanza (bleed)'), 'mpc');
   await page.getByText('816 × 1111 px · 3 immagini').waitFor();
   await page.getByRole('img', { name: 'Sole · Retro' }).waitFor();
+  const captions = page.locator('.card-export-item figcaption');
+  assert.ok((await captions.allTextContents()).every(caption => !caption.includes('×')));
+  const exportCopies = page.getByRole('checkbox', { name: 'Esporta tutte le copie' });
+  await exportCopies.check();
+  assert.equal(await captions.filter({ hasText: '×99' }).count(), 2);
+  await exportCopies.uncheck();
   await page.waitForFunction(() => document.querySelector('.card-export-grid canvas')?.width > 1);
   await page.screenshot({ path: join(paths, 'card-export.png') });
   await page.getByRole('button', { name: 'Salva ZIP' }).click();
@@ -182,8 +315,8 @@ try {
     assert.equal(image.readUInt32BE(density + 4), 11811);
     assert.equal(image.readUInt8(density + 12), 1);
   }
-  await page.getByRole('button', { name: 'Stampa', exact: true }).click();
-  await page.getByRole('button', { name: 'Foglio di stampa' }).click();
+  await page.getByRole('button', { name: 'Esporta', exact: true }).click();
+  await page.getByRole('button', { name: 'PDF per la stampa' }).click();
   await page.getByRole('button', { name: 'Salva PDF' }).click();
   await page.getByText('PDF salvato').waitFor({ timeout: 30000 });
   const doc = await PDFDocument.load(await readFile(pdfPath));
@@ -196,11 +329,71 @@ try {
   page = await electron.firstWindow();
   await page.getByRole('heading', { name: 'Lightning Bolt', exact: true }).waitFor();
   assert.equal(await page.locator('.deck').getByLabel('Cornice del progetto').getAttribute('data-value'), 'full-art');
-  await page.waitForFunction(() => document.querySelector('canvas')?.width === 744);
+  await verifySymbolPixels('.card-preview canvas', [255, 0, 255], [0, 255, 255]);
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
-  await page.getByRole('button', { name: 'Foglio di stampa' }).click();
+  await page.getByRole('button', { name: 'PDF per la stampa' }).click();
   await page.getByText(/Pagina 1 di 24/).waitFor();
   await page.screenshot({ path: join(paths, 'print.png') });
+  for (const width of [1440, 768, 375, 320]) {
+    await page.setViewportSize({ width, height: 812 });
+    assert.equal(await page.locator('.workspace').evaluate(node => node.scrollWidth <= node.clientWidth), true);
+    assert.equal(await page.locator('dialog').evaluate(node => node.scrollWidth <= node.clientWidth), true);
+  }
+  await page.getByRole('button', { name: 'Chiudi', exact: true }).click();
+  await page.setViewportSize({ width: 375, height: 812 });
+  const panels = page.getByRole('navigation', { name: 'Pannelli dell’editor' });
+  await panels.getByRole('button', { name: 'Proprietà' }).click();
+  assert.equal(await page.locator('.stage').isVisible(), false);
+  await page.getByRole('textbox', { name: 'Firma dell’artista' }).waitFor();
+  await panels.getByRole('button', { name: 'Cerca una carta' }).click();
+  await page.waitForFunction(() => document.activeElement === document.querySelector('.catalog-search input'));
+  await page.locator('.deck-list input[type="checkbox"]').first().check();
+  assert.equal(await page.locator('.selection-bar input').evaluate(node => node.indeterminate), true);
+  await page.locator('.deck-list-search input').fill('Sole');
+  await page.locator('.hidden-selection').waitFor();
+  assert.equal(await page.locator('.selection-actions button').last().isDisabled(), true);
+  await page.getByRole('button', { name: 'Modifica in blocco' }).click();
+  const batchDialog = page.getByRole('dialog', { name: 'Modifica in blocco' });
+  await batchDialog.getByText('Modifica di 1 carta selezionata', { exact: true }).waitFor();
+  await batchDialog.getByText(/1 nascosta dai filtri/).waitFor();
+  await batchDialog.getByRole('button', { name: 'Annulla', exact: true }).click();
+  const quantity = page.locator('.deck-list input[type="number"]');
+  await quantity.fill('0');
+  await quantity.press('Tab');
+  await page.getByText('Inserisci un numero intero da 1 a 999.', { exact: true }).waitFor();
+  assert.equal(await quantity.inputValue(), '99');
+  await page.locator('.hidden-selection-actions button').first().click();
+  assert.equal(await page.locator('.deck-list input[type="checkbox"]').first().isChecked(), true);
+
+  await electron.evaluate(({ ipcMain }) => {
+    globalThis.smokeSaveFailure = true;
+    globalThis.smokeSavedProjects = [];
+    ipcMain.removeHandler('projects:save');
+    ipcMain.handle('projects:save', (_event, project) => {
+      if (globalThis.smokeSaveFailure) throw new Error('Simulated project save failure');
+      globalThis.smokeSavedProjects.push({ id: project.id, name: project.name });
+    });
+  });
+  const projectSelect = page.getByRole('combobox', { name: 'Apri progetto' });
+  const originalProjectId = await projectSelect.getAttribute('data-value');
+  const projectTitle = page.getByRole('textbox', { name: 'Nome del progetto' });
+  const changedTitle = 'Verifica recupero salvataggio';
+  await projectTitle.fill(changedTitle);
+  await projectTitle.press('Enter');
+  await page.locator('.save-status').getByRole('button', { name: 'Riprova a salvare' }).waitFor();
+  await choose(projectSelect, 'new');
+  const unsavedDialog = page.getByRole('dialog', { name: 'Modifiche non salvate' });
+  await unsavedDialog.getByText(`Impossibile salvare le modifiche a «${changedTitle}».`).waitFor();
+  assert.equal(await projectSelect.getAttribute('data-value'), originalProjectId);
+  await unsavedDialog.getByRole('button', { name: 'Continua a modificare' }).click();
+  assert.equal(await projectTitle.inputValue(), changedTitle);
+  await choose(projectSelect, 'new');
+  await electron.evaluate(() => { globalThis.smokeSaveFailure = false; });
+  await unsavedDialog.getByRole('button', { name: 'Riprova a salvare' }).click();
+  await page.getByRole('heading', { name: 'Cerca una carta' }).waitFor();
+  assert.notEqual(await projectSelect.getAttribute('data-value'), originalProjectId);
+  const [retriedProject] = await electron.evaluate(() => globalThis.smokeSavedProjects);
+  assert.deepEqual(retriedProject, { id: originalProjectId, name: changedTitle });
   console.log('Workflow verificato', paths);
 } finally {
   await electron.close().catch(() => {});

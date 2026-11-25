@@ -1,0 +1,25 @@
+.update-notice:not(:empty) {
+  position: fixed;
+  inset-block-start: 72px;
+  inset-inline-end: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  max-inline-size: calc(100% - 32px);
+  padding: 4px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 6px 20px #0008;
+}
+.update-notice .update-notice-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  text-align: start;
+}
+.update-notice-link svg { flex: none; }
+.update-notice-link span { display: grid; }
+.update-notice .icon-button { border-color: transparent; }

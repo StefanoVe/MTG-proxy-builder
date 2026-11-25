@@ -1,4 +1,3 @@
-import { Select } from './Select.js';
 import { errorMessage } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
 import { useState } from 'react';
@@ -6,29 +5,17 @@ import { assetURL, defaultZones, frameColorNames, frameColors, frameSetAssetsSch
 import type { FrameColor, FrameSet } from '../shared/model.js';
 import { pngArtZone } from './compose.js';
 
-export function FrameSets({ sets, active, count, save }: {
-  sets: FrameSet[]; active?: string; count: number; save: (set: FrameSet, apply: boolean) => void;
+export function FrameSets({ sets, existing, count, save }: {
+  sets: FrameSet[]; existing?: FrameSet; count: number; save: (set: FrameSet, apply: boolean) => void;
 }) {
   const { t, locale } = useI18n();
-  const initial = sets.find(set => set.id === active);
-  const [id, setId] = useState(initial?.id ?? '');
-  const [name, setName] = useState(initial?.name ?? '');
-  const [assets, setAssets] = useState<Partial<FrameSet['assets']>>(initial?.assets ?? {});
-  const [mix, setMix] = useState(initial?.mix ?? true);
+  const [name, setName] = useState(existing?.name ?? '');
+  const [assets, setAssets] = useState<Partial<FrameSet['assets']>>(existing?.assets ?? {});
+  const [mix, setMix] = useState(existing?.mix ?? true);
   const [apply, setApply] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const existing = sets.find(set => set.id === id);
   const ready = frameColors.every(color => assets[color]);
-
-  function choose(id: string) {
-    const selected = sets.find(set => set.id === id);
-    setId(id);
-    setName(selected?.name ?? '');
-    setAssets(selected?.assets ?? {});
-    setMix(selected?.mix ?? true);
-    setError('');
-  }
 
   async function importColor(color: FrameColor) {
     setBusy(true);
@@ -47,7 +34,7 @@ export function FrameSets({ sets, active, count, save }: {
   async function submit() {
     const parsed = frameSetAssetsSchema.safeParse(assets);
     if (!parsed.success || !name.trim()) return;
-    if (sets.some(set => set.id !== id && set.name.localeCompare(name.trim(), 'it', { sensitivity: 'base' }) === 0)) {
+    if (sets.some(set => set.id !== existing?.id && set.name.localeCompare(name.trim(), locale, { sensitivity: 'base' }) === 0)) {
       setError(t('duplicateSet'));
       return;
     }
@@ -58,14 +45,11 @@ export function FrameSets({ sets, active, count, save }: {
     setBusy(true);
     const zone = existing ? undefined : await pngArtZone(parsed.data.C).catch(() => undefined);
     const zones = existing?.zones ?? { ...defaultZones, ...(zone ? { art: zone } : {}) };
-    save({ ...existing, id: id || crypto.randomUUID(), name: name.trim(), assets: parsed.data, mix, zones }, apply && count > 0);
+    save({ ...existing, id: existing?.id ?? crypto.randomUUID(), name: name.trim(), assets: parsed.data, mix, zones }, apply && count > 0);
+    setBusy(false);
   }
 
   return <form className="frame-set-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
-    {sets.length > 0 && <label>{t('frameSets')}<Select value={id} disabled={busy} onChange={event => choose(event.target.value)}>
-      <option value="">{t('newSet')}</option>
-      {sets.map(set => <option key={set.id} value={set.id}>{set.name}</option>)}
-    </Select></label>}
     <label>{t('setName')}<input value={name} maxLength={100} disabled={busy} onChange={event => setName(event.target.value)} /></label>
     <p className="muted">{t('setPngHelp')}</p>
     <div className="frame-set-grid">

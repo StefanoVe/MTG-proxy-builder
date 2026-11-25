@@ -5,6 +5,12 @@ import { cardArchiveMaxBytes } from '../shared/print.js';
 import { encodeCardImage, renderCardImage } from './card-images.js';
 import type { BleedFill, ImageFormat, imageFaces, imageGeometry } from './card-images.js';
 
+export class CardArchiveFaceError extends Error {
+  constructor(message: string, readonly cardId: string, readonly back: boolean) {
+    super(message);
+  }
+}
+
 export async function createCardArchive(faces: ReturnType<typeof imageFaces>, options: {
   geometry: ReturnType<typeof imageGeometry>; fill: BleedFill; color: string; format: ImageFormat;
   dpi: number; quality: number; copies: boolean;
@@ -32,7 +38,7 @@ export async function createCardArchive(faces: ReturnType<typeof imageFaces>, op
       if (warning) throw new LocalizedError(warning);
       data = await encodeCardImage(output, options.format, options.dpi, options.quality);
     } catch (cause) {
-      throw new Error(`${label} · ${errorMessage(cause, locale)}`);
+      throw new CardArchiveFaceError(`${label} · ${errorMessage(cause, locale)}`, card.id, back);
     }
     const { first, count } = numbering.get(card.id)!;
     for (let copy = 0; copy < count; copy++) {

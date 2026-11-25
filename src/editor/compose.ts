@@ -1,27 +1,23 @@
 import { LocalizedError } from '../shared/i18n.js';
 import type { MessageKey } from '../shared/i18n.js';
+import { automaticTextColor, cardColorKeys, cardColors, toneOf } from './card-colors.js';
 import { cardZones } from './card-zones.js';
 import { blendColorFrames } from './color-frames.js';
 import { colorFrameLayers } from '../shared/frame-colors.js';
-import { templateAppearance } from '../shared/templates.js';
+import { hiddenByCondition } from '../shared/frame-visibility.js';
+import { defaultFrameTextAlign, defaultFrameTextSizes, frameAppearance } from '../shared/templates.js';
 import { blurTemplateArt, drawTemplateDividers, shadeTemplate, templateBox } from './template-effects.js';
 import { drawDecorations, loadMotif } from './template-decorations.js';
 import { manaTokens, ruleWords } from '../shared/mana.js';
 import type { RuleRun } from '../shared/mana.js';
 import { drawSymbol, manaIcons } from './mana-icons.js';
 import { assetURL, cardSide, defaultZones, sideOrientation } from '../shared/model.js';
-import type { Card, Rect, Tone } from '../shared/model.js';
+import type { Card, FrameTextArea, Rect } from '../shared/model.js';
 import { findArtWindow, findTransparentArtWindow } from '../shared/art-window.js';
 import { pixels } from '../shared/print.js';
 
 const width = pixels.width;
 const height = pixels.height;
-const colors: Record<Exclude<Tone, 'auto'>, [string, string]> = {
-  white: ['#beb49b', '#f8eed7'], blue: ['#387184', '#d6eff1'], black: ['#554a5a', '#e8dfe8'],
-  red: ['#a4513a', '#f6e2ce'], green: ['#476649', '#e0ebd2'], multi: ['#9c783f', '#f3e7be'],
-  artifact: ['#69767c', '#e1e9e6'], land: ['#79614e', '#efe5d0']
-};
-const colorNames = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' } as const;
 const imageCache = new Map<string, Promise<HTMLImageElement>>();
 
 function loadImage(id: string) {
@@ -99,31 +95,20 @@ function artwork(ctx: CanvasRenderingContext2D, image: HTMLImageElement, r: Rect
   ctx.restore();
 }
 
-function toneOf(card: Card): Exclude<Tone, 'auto'> {
-  if ((card.frame.kind === 'modern' || card.frame.kind === 'classic') && card.frame.tone !== 'auto') return card.frame.tone;
-  if (card.frame.kind === 'template') {
-    const colorKeys = card.source.colors.length || card.source.printingId ? card.source.colors
-      : [...new Set(manaTokens(card.fields.mana).flatMap(token => token.toUpperCase().split('/')).filter(
-        (part): part is keyof typeof colorNames => Object.hasOwn(colorNames, part)
-      ))];
-    if (colorKeys.length > 1) return 'multi';
-    if (colorKeys.length === 1) return colorNames[colorKeys[0]];
-  }
-  if (/\b(land|terra)\b/i.test(card.fields.type)) return 'land';
-  if (card.source.colors.length > 1) return 'multi';
-  return colorNames[card.source.colors[0]] ?? 'artifact';
-}
-
-function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: number, font: string, color = '#24211e', align: CanvasTextAlign = 'left') {
+function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: number, font: string, color: string,
+  align: CanvasTextAlign, customSize?: number) {
   if (!text || r.w < 2) return;
-  const size = Math.min(max, r.h * 0.72);
+  const size = customSize ?? Math.min(max, r.h * 0.72);
   ctx.font = `${size}px ${font}`;
-  const measured = ctx.measureText(text).width;
-  ctx.font = `${Math.max(12, Math.min(size, size * r.w / measured))}px ${font}`;
-  ctx.fillStyle = color;
   ctx.textAlign = align;
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, r.x + (align === 'center' ? r.w / 2 : 0), r.y + r.h / 2, r.w);
+  const metrics = ctx.measureText(text);
+  const fitted = Math.min(size, size * r.w / metrics.width);
+  const finalSize = customSize === undefined ? Math.max(12, fitted)
+    : Math.min(fitted, size * r.h / (2 * Math.max(metrics.actualBoundingBoxAscent, metrics.actualBoundingBoxDescent)));
+  ctx.font = `${finalSize}px ${font}`;
+  ctx.fillStyle = color;
+  ctx.fillText(text, r.x + (align === 'center' ? r.w / 2 : align === 'right' ? r.w : 0), r.y + r.h / 2, r.w);
 }
 
 function canvasFontFamily(family?: string) {
@@ -133,14 +118,16 @@ function canvasFontFamily(family?: string) {
   return `"${family.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}", sans-serif`;
 }
 
-function drawRules(ctx: CanvasRenderingContext2D, text: string, r: Rect, ink: string, icons: Map<string, HTMLImageElement>, font: string) {
+function drawRules(ctx: CanvasRenderingContext2D, text: string, r: Rect, ink: string, icons: Map<string, HTMLImageElement>, font: string,
+  max: number, align: CanvasTextAlign) {
   if (!text) return true;
   const paragraphs = text.split('\n').map(ruleWords);
-  let size = 31;
+  let size = max;
+  const min = Math.min(14, max);
   let lines: RuleRun[][][] = [];
   const measure = (run: RuleRun) => run.symbol ? size * (0.96 + 0.14) : ctx.measureText(run.text).width;
   let fits = false;
-  for (; size >= 14; size--) {
+  for (; size >= min; size--) {
     ctx.font = `${size}px ${font}`;
     lines = [];
     let widest = 0;
@@ -164,7 +151,7 @@ function drawRules(ctx: CanvasRenderingContext2D, text: string, r: Rect, ink: st
     }
     if (lines.length * size * 1.2 <= r.h && widest <= r.w) { fits = true; break; }
   }
-  size = Math.max(size, 14);
+  size = Math.max(size, min);
   ctx.save();
   ctx.beginPath();
   ctx.rect(r.x, r.y, r.w, r.h);
@@ -175,7 +162,10 @@ function drawRules(ctx: CanvasRenderingContext2D, text: string, r: Rect, ink: st
   ctx.textBaseline = 'middle';
   const space = ctx.measureText(' ').width;
   lines.forEach((line, i) => {
-    let x = r.x;
+    const lineWidth = align === 'left' ? 0 : line.reduce((sum, word, index) =>
+      sum + word.reduce((wordWidth, run) => wordWidth + measure(run), 0) + (index ? space : 0), 0);
+    const free = Math.max(0, r.w - lineWidth);
+    let x = r.x + (align === 'center' ? free / 2 : align === 'right' ? free : 0);
     const y = r.y + (i + 0.5) * size * 1.2;
     for (const word of line) {
       for (const run of word) {
@@ -213,7 +203,7 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   const artId = card.art ?? card.source.images.art;
   const template = card.frame.kind === 'template' ? card.frame.template : undefined;
   const hidden = new Set(card.hiddenZones ?? []);
-  const baseAppearance = card.frame.kind === 'template' ? templateAppearance(card.frame) : undefined;
+  const baseAppearance = frameAppearance(card.frame);
   const effectHidden = (anchor: 'title' | 'type' | 'rules' | 'manual' | undefined, fallback: 'title' | 'rules') =>
     anchor !== 'manual' && hidden.has(anchor ?? fallback);
   const appearance = baseAppearance ? { ...baseAppearance, ...card.dividerOverrides, zones: cardZones(card),
@@ -221,21 +211,25 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
     titleShade: effectHidden(baseAppearance.topEffect?.anchor, 'title') ? 0 : baseAppearance.titleShade,
     rulesBlur: effectHidden(baseAppearance.bottomEffect?.anchor, 'rules') ? 0 : baseAppearance.rulesBlur,
     rulesShade: effectHidden(baseAppearance.bottomEffect?.anchor, 'rules') ? 0 : baseAppearance.rulesShade,
-    titleDivider: hidden.has('title') ? false : card.dividerOverrides?.titleDivider ?? baseAppearance.titleDivider,
-    divider: hidden.has('rules') ? false : card.dividerOverrides?.divider ?? baseAppearance.divider
+    titleDivider: hidden.has('title') || hiddenByCondition(baseAppearance.titleDividerHideWhen, card.fields)
+      ? false : card.dividerOverrides?.titleDivider ?? baseAppearance.titleDivider,
+    divider: hidden.has('rules') || hiddenByCondition(baseAppearance.dividerHideWhen, card.fields)
+      ? false : card.dividerOverrides?.divider ?? baseAppearance.divider
   } : undefined;
   const set = card.frame.kind === 'color-set' ? card.frame.set : undefined;
-  const frameId = card.frame.kind === 'custom' ? card.frame.asset : appearance?.overlay;
+  const frameId = card.frame.kind === 'custom' ? card.frame.asset : undefined;
   const actualPrinting = card.frame.kind === 'printing' || !card.source.editable;
   const printedId = back ? card.source.images.back : actualPrinting ? card.source.images.front : undefined;
   const replacement = !back && actualPrinting && card.source.editable ? card.art : undefined;
-  const [art, sourceOverlay, printed, icons, colorFrames, decorations] = await Promise.all([
+  const [art, sourceOverlay, extraOverlay, printed, icons, colorFrames, decorations] = await Promise.all([
     replacement || (!printedId && !actualPrinting && artId) ? loadImage(replacement ?? artId!) : undefined,
     !printedId && frameId ? loadImage(frameId) : undefined,
+    !actualPrinting && appearance?.overlay ? loadImage(appearance.overlay) : undefined,
     printedId ? loadImage(printedId) : undefined,
-    !actualPrinting && !back ? manaIcons(card.fields.mana, card.fields.rules) : new Map<string, HTMLImageElement>(),
-    set && !actualPrinting && !back ? Promise.all(colorFrameLayers(set, card.source.colors).map(loadImage)) : undefined,
-    !actualPrinting && !back ? Promise.all((appearance?.decorations ?? []).filter(layer => layer.opacity > 0).map(async decoration => ({
+    !actualPrinting && !back ? manaIcons(card.fields.mana, card.fields.rules, appearance?.symbolOverrides) : new Map<string, HTMLImageElement>(),
+    set && !actualPrinting && !back ? Promise.all(colorFrameLayers(set, cardColorKeys(card)).map(loadImage)) : undefined,
+    !actualPrinting && !back ? Promise.all((appearance?.decorations ?? []).filter(layer =>
+      layer.opacity > 0 && !hiddenByCondition(layer.hideWhen, card.fields)).map(async decoration => ({
       decoration,
       image: await (decoration.source.kind === 'motif' ? loadMotif(decoration.source.motif) : loadImage(decoration.source.asset))
     }))) : []
@@ -271,9 +265,11 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   if (back || actualPrinting) throw new LocalizedError('missingScanHelp');
   const overlay = colorFrames && colorFrames.length > 1 ? blendColorFrames(colorFrames, width, height) : colorFrames?.[0] ?? sourceOverlay;
   const zones = cardZones(card);
-  const [ink, paper] = colors[toneOf(card)];
-  const textColor = (appearance?.autoTextColor ? paper : appearance?.textColor) ?? (card.frame.kind === 'custom' ? card.frame.textColor : undefined) ?? set?.textColor ?? '#24211e';
-  const font = canvasFontFamily(appearance?.fontFamily ?? (card.frame.kind === 'custom' ? card.frame.fontFamily : undefined) ?? set?.fontFamily);
+  const [ink, paper] = cardColors[toneOf(card)];
+  const textColor = appearance?.autoTextColor
+    ? automaticTextColor(card, appearance.symbolOverrides, paper)
+    : appearance?.textColor ?? '#24211e';
+  const font = canvasFontFamily(appearance?.fontFamily);
   const classic = card.frame.kind === 'classic';
   const illustration = box(zones.art);
   const stats = card.fields.loyalty || card.fields.defense ||
@@ -299,31 +295,37 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
     drawRect(ctx, illustration, '#343b3d', 0);
     if (art) artwork(ctx, art, illustration, card.crop);
   }
-  if (template && appearance) blurTemplateArt(ctx, template, appearance);
+  if (appearance) blurTemplateArt(ctx, template ?? 'full-art', appearance);
   if (overlay) ctx.drawImage(overlay, 0, 0, width, height);
-  if (template && appearance) {
-    shadeTemplate(ctx, template, appearance);
+  if (extraOverlay) ctx.drawImage(extraOverlay, 0, 0, width, height);
+  if (appearance) {
+    shadeTemplate(ctx, template ?? 'full-art', appearance);
     drawDecorations(ctx, decorations, paper, textColor);
     drawTemplateDividers(ctx, appearance, paper);
   }
 
   const title = box(zones.title);
+  const textSize = (area: FrameTextArea) => appearance?.textStyles?.[area]?.size;
+  const textAlign = (area: FrameTextArea) => appearance?.textStyles?.[area]?.align ?? defaultFrameTextAlign(area);
+  const drawLine = (area: FrameTextArea, text: string, rect: Rect, fallback = defaultFrameTextSizes[area]) =>
+    fitLine(ctx, text, rect, fallback, font, textColor, textAlign(area), textSize(area));
   const mana = manaTokens(card.fields.mana);
   const manaGap = 4;
   const diameter = Math.min(41, title.h * 0.78, (title.w * 0.62 - manaGap * Math.max(0, mana.length - 1)) / Math.max(1, mana.length));
   const manaWidth = mana.length * diameter + manaGap * Math.max(0, mana.length - 1);
-  if (!hidden.has('title')) fitLine(ctx, card.fields.name, { ...title, w: title.w - manaWidth - (mana.length ? 10 : 0) }, 43, font, textColor);
+  if (!hidden.has('title')) drawLine('title', card.fields.name, { ...title, w: title.w - manaWidth - (mana.length ? 10 : 0) });
   if (!hidden.has('title')) mana.forEach((token, index) => drawSymbol(ctx, icons, token, title.x + title.w - manaWidth + index * (diameter + manaGap),
     title.y + (title.h - diameter) / 2, diameter, textColor));
-  if (!hidden.has('type')) fitLine(ctx, card.fields.type, box(zones.type), 32, font, textColor);
-  if (stats && !hidden.has('stats')) fitLine(ctx, stats, box(zones.stats), 34, font, textColor, 'center');
-  const result = hidden.has('rules') || drawRules(ctx, card.fields.rules, box(zones.rules), textColor, icons, font);
+  if (!hidden.has('type')) drawLine('type', card.fields.type, box(zones.type));
+  if (stats && !hidden.has('stats')) drawLine('stats', stats, box(zones.stats));
+  const result = hidden.has('rules') || drawRules(ctx, card.fields.rules, box(zones.rules), textColor, icons, font,
+    textSize('rules') ?? defaultFrameTextSizes.rules, textAlign('rules'));
   if (template) {
-    fitLine(ctx, card.fields.artist, { x: width * 0.06, y: height * 0.965, w: width * 0.88, h: 23 }, 19, font, textColor);
+    drawLine('artist', card.fields.artist, { x: width * 0.06, y: height * 0.965, w: width * 0.88, h: 23 });
   } else if (!overlay) {
-    fitLine(ctx, card.fields.artist, { x: width * .066, y: height * .924, w: width * .88, h: height * .025 }, 21, font, textColor);
+    drawLine('artist', card.fields.artist, { x: width * .066, y: height * .924, w: width * .88, h: height * .025 }, 21);
   } else {
-    fitLine(ctx, card.fields.artist, { x: 26, y: height - 33, w: width - 52, h: 29 }, 20, font, textColor);
+    drawLine('artist', card.fields.artist, { x: 26, y: height - 33, w: width - 52, h: 29 }, 20);
   }
   if ((template || set) && !art && !hidden.has('art')) return { warning: 'addArtHelp' };
   return result && (hidden.has('title') || mana.length === 0 || diameter >= 7) ? {} : { warning: 'textOverflow' };

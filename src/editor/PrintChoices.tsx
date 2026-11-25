@@ -27,7 +27,7 @@ export function PrintChoices({ cards, choose }: { cards: Card[]; choose: (mode: 
           {spread.map((card, index) => <Preview key={index} card={card} />)}
         </div>
       </div>
-      <strong id="choice-cards">{t('individualCards')}</strong>
+      <strong id="choice-cards">{t('exportCardImages')}</strong>
       <small id="choice-cards-detail">{t('individualCardsDetails')}</small>
     </button>
   </div>;

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Locale } from './i18n.js';
+import { manaFiles } from './mana-catalog.ts';
 
 export const assetId = z.string().regex(/^[a-f0-9]{64}$/);
 const uuid = z.uuid();
@@ -42,6 +43,11 @@ const hexColor = z.string().regex(/^#[0-9a-f]{6}$/i);
 export const fontFamilySchema = z.string().trim().min(1).max(256);
 export type CardFontFamily = z.infer<typeof fontFamilySchema>;
 const motifSchema = z.enum(['frame', 'corners', 'flourish', 'seal']);
+export const maxVisibilityQueryLength = 12000;
+const visibilityConditionSchema = z.object({
+  field: z.enum(['name', 'type', 'rules']), query: z.string().max(maxVisibilityQueryLength), negate: z.boolean()
+});
+export type FrameVisibilityCondition = z.infer<typeof visibilityConditionSchema>;
 const decorationSchema = z.object({
   id: uuid, name: z.string().min(1).max(255), rect, opacity: z.number().min(0).max(1),
   source: z.discriminatedUnion('kind', [
@@ -49,7 +55,7 @@ const decorationSchema = z.object({
     z.object({ kind: z.literal('motif'), motif: motifSchema })
   ]),
   tint: z.enum(['original', 'card', 'text', 'custom']), color: hexColor,
-  fit: z.enum(['contain', 'stretch'])
+  fit: z.enum(['contain', 'stretch']), hideWhen: visibilityConditionSchema.optional()
 });
 export type FrameDecoration = z.infer<typeof decorationSchema>;
 export const maxDecorations = 12;
@@ -58,9 +64,21 @@ const templateEffectSchema = z.object({
   height: z.number().min(0).max(100).optional()
 });
 export type TemplateEffect = z.infer<typeof templateEffectSchema>;
+export const frameTextAreas = ['title', 'type', 'rules', 'stats', 'artist'] as const;
+export type FrameTextArea = typeof frameTextAreas[number];
+const frameTextStyleSchema = z.object({
+  align: z.enum(['left', 'center', 'right']).optional(),
+  size: z.number().int().min(8).max(96).optional()
+});
+export type FrameTextStyle = z.infer<typeof frameTextStyleSchema>;
+const symbolStyleSchema = z.object({ asset: assetId.optional(), textColor: hexColor.optional() });
+export type SymbolStyle = z.infer<typeof symbolStyleSchema>;
+const symbolOverridesSchema = z.partialRecord(z.enum(Object.keys(manaFiles)), symbolStyleSchema);
+export type SymbolOverrides = z.infer<typeof symbolOverridesSchema>;
 export const templateAppearanceSchema = z.object({
-  zones: zonesSchema, overlay: assetId.optional(),
+  zones: zonesSchema, overlay: assetId.optional(), symbolOverrides: symbolOverridesSchema.optional(),
   textColor: hexColor, fontFamily: fontFamilySchema.optional(), accent: hexColor.optional(), divider: z.boolean(),
+  textStyles: z.partialRecord(z.enum(frameTextAreas), frameTextStyleSchema).optional(),
   titleShade: z.number().min(0).max(1), rulesShade: z.number().min(0).max(1),
   autoTextColor: z.boolean().optional(), shadeColor: hexColor.optional(),
   titleBlur: z.number().min(0).max(32).optional(), rulesBlur: z.number().min(0).max(32).optional(),
@@ -69,6 +87,7 @@ export const templateAppearanceSchema = z.object({
   dividerWeight: z.number().min(1).max(12).optional(), dividerPadding: z.number().min(0).max(100).optional(),
   dividerAlign: z.enum(['left', 'center', 'right']).optional(),
   dividerStyle: z.enum(['solid', 'fade', 'dashed']).optional(),
+  titleDividerHideWhen: visibilityConditionSchema.optional(), dividerHideWhen: visibilityConditionSchema.optional(),
   decorations: z.array(decorationSchema).max(maxDecorations).optional()
 });
 export type TemplateAppearance = z.infer<typeof templateAppearanceSchema>;
@@ -78,14 +97,15 @@ export const frameColorNames = { W: 'white', U: 'blue', B: 'black', R: 'red', G:
 export const frameSetAssetsSchema = z.object({ W: assetId, U: assetId, B: assetId, R: assetId, G: assetId, C: assetId });
 export const frameSetSchema = z.object({
   id: uuid, name: z.string().trim().min(1).max(100), assets: frameSetAssetsSchema, mix: z.boolean(), zones: zonesSchema,
-  textColor: hexColor.optional(), fontFamily: fontFamilySchema.optional()
+  textColor: hexColor.optional(), fontFamily: fontFamilySchema.optional(), appearance: templateAppearanceSchema.optional()
 });
 export type FrameColor = typeof frameColors[number];
 export type FrameSet = z.infer<typeof frameSetSchema>;
 
 const builtInFrameSchema = z.object({ kind: z.enum(['modern', 'classic']), tone: z.enum(tones) });
 const templateFrameSchema = z.object({ kind: z.literal('template'), template: templateSchema, appearance: templateAppearanceSchema.optional() });
-const customFrameSchema = z.object({ kind: z.literal('custom'), asset: assetId, zones: zonesSchema, textColor: hexColor.optional(), fontFamily: fontFamilySchema.optional() });
+const customFrameSchema = z.object({ kind: z.literal('custom'), asset: assetId, zones: zonesSchema, textColor: hexColor.optional(),
+  fontFamily: fontFamilySchema.optional(), appearance: templateAppearanceSchema.optional() });
 const projectFrameSchema = z.discriminatedUnion('kind', [
   builtInFrameSchema, templateFrameSchema, customFrameSchema,
   z.object({ kind: z.literal('color-set'), id: uuid }),
@@ -120,8 +140,7 @@ export const cardSchema = z.object({
     customFrameSchema
   ])
 });
-export const presetSchema = z.object({ id: uuid, name: z.string().trim().min(1).max(100), asset: assetId, zones: zonesSchema,
-  textColor: hexColor.optional(), fontFamily: fontFamilySchema.optional() });
+export const presetSchema = customFrameSchema.omit({ kind: true }).extend({ id: uuid, name: z.string().trim().min(1).max(100) });
 export const projectSchema = z.object({
   version: z.literal(1), id: uuid, name: z.string().min(1).max(100),
   cards: z.array(cardSchema).max(1500), presets: z.array(presetSchema).max(200),
@@ -150,6 +169,8 @@ export type PrintSettings = { paper: 'A4' | 'Letter'; cut: boolean; backs: boole
 export type ProxyAPI = {
   getLocale(): Promise<Locale>;
   setLocale(locale: Locale): Promise<void>;
+  checkForUpdate(): Promise<string | null>;
+  openReleases(): Promise<void>;
   fonts(): Promise<string[]>;
   projects(): Promise<Array<Pick<Project, 'id' | 'name'>>>;
   open(id: string): Promise<Project>;
