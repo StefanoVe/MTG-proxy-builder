@@ -1,4 +1,5 @@
 import type { Card, Project, Template, TemplateAppearance, Zones } from './model.js';
+import { cardSide, sideState } from './model.ts';
 
 const templateZones: Record<Template, Zones> = {
   'full-art': {
@@ -49,10 +50,13 @@ export function projectFrame(project: Project): Card['frame'] | undefined {
 }
 
 export function withProjectFrame(card: Card, project: Project, frame = projectFrame(project)): Card {
-  return withProjectTemplate(frame && card.source.editable ? { ...card, frame } : card, project.templateAppearances);
+  const apply = (side: Card) => withProjectTemplate(frame && side.source.editable ? { ...side, frame } : side, project.templateAppearances);
+  const front = apply(card);
+  if (!card.source.images.back || !card.source.editable) return front;
+  return { ...front, backSide: sideState(apply(cardSide(card, true))) };
 }
 
 export function projectCards(project: Project, cards = project.cards): Card[] {
   const frame = projectFrame(project);
-  return cards.map(card => frame ? withProjectFrame(card, project, frame) : withProjectTemplate(card, project.templateAppearances));
+  return cards.map(card => withProjectFrame(card, project, frame));
 }

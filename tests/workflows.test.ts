@@ -124,6 +124,21 @@ test('a project frame preserves individual card modification status', () => {
   assert.deepEqual(project.cards.map(isCardModified), [false, true]);
 });
 
+test('project frame and template appearance apply to both sides without changing saved side settings', () => {
+  const original = createCard({ ...blankCard, printingId: 'two-faces', images: { front: image, back: image } });
+  const back = cardSide(original, true);
+  const doubleSided = { ...original, backSide: sideState({ ...back, fields: { ...back.fields, name: 'Retro personalizzato' }, frame: newTemplate('full-art') }) };
+  const appearance = { ...templateAppearance(newTemplate('full-art')), textColor: '#123456' };
+  const project = { ...createProject(), cards: [doubleSided], frame: newTemplate('full-art'), templateAppearances: { 'full-art': appearance } };
+  const rendered = projectCards(project)[0];
+  assert.deepEqual(rendered.frame, { kind: 'template', template: 'full-art', appearance });
+  assert.deepEqual(cardSide(rendered, true).frame, rendered.frame);
+  assert.equal(cardSide(rendered, true).fields.name, 'Retro personalizzato');
+  assert.deepEqual(doubleSided.backSide.frame, newTemplate('full-art'));
+  const perCard = projectCards({ ...project, frame: undefined })[0];
+  assert.deepEqual(cardSide(perCard, true).frame, { kind: 'template', template: 'full-art', appearance });
+});
+
 test('the saved project frame applies to new cards and preserves cards that require scans', () => {
   const original = createCard({ ...blankCard, printingId: 'catalog-card', images: { front: image } });
   const special = createCard({ ...blankCard, printingId: 'double-sided', editable: false, images: { front: image, back: image } });

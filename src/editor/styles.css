@@ -210,6 +210,9 @@ label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .thirds-grid-line-h { left: 0; right: 0; height: 1px; }
 .thirds-grid-line-h:nth-child(3) { top: 33.333%; }
 .thirds-grid-line-h:nth-child(4) { top: 66.667%; }
+.thirds-grid::before, .thirds-grid::after { content: ''; position: absolute; left: 50%; top: 50%; background: #fff9; box-shadow: 0 0 1px #0009; transform: translate(-50%, -50%); }
+.thirds-grid::before { width: 20px; height: 1px; }
+.thirds-grid::after { width: 1px; height: 20px; }
 .is-draggable { cursor: move; touch-action: none; }
 .zone-guide { position: absolute; outline: 2px dashed var(--accent); background: #ffffff20; pointer-events: none; }
 .preview-warning { position: absolute; left: 8px; right: 8px; bottom: 8px; background: #111; padding: 4px 8px; }
