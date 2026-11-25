@@ -46,7 +46,7 @@ export async function manaIcons(cost: string, rules: string, overrides?: SymbolO
 }
 
 export function drawSymbol(ctx: CanvasRenderingContext2D, icons: Map<string, HTMLImageElement>, token: string,
-  x: number, y: number, size: number, ink: string) {
+  x: number, y: number, size: number, ink: string | CanvasGradient) {
   const info = manaSymbol(token);
   const icon = info ? icons.get(info) : undefined;
   const iconWidth = icon?.naturalWidth || icon?.width || 0;

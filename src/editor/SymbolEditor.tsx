@@ -3,7 +3,7 @@ import { errorMessage } from '../shared/i18n.js';
 import { manaFiles } from '../shared/mana-catalog.js';
 import { assetURL } from '../shared/model.js';
 import type { SymbolStyle, TemplateAppearance } from '../shared/model.js';
-import { defaultSymbolTextColor } from './card-colors.js';
+import { colorTransition, defaultSymbolTextColor, splitSymbolColor } from './card-colors.js';
 import { importFrameArtwork } from './frame-artwork.js';
 import { useI18n } from './i18n.js';
 import { Icon } from './Icon.js';
@@ -23,6 +23,7 @@ export function SymbolEditor({ appearance, change }: {
   const input = useRef<HTMLInputElement>(null);
   const overrides = appearance.symbolOverrides;
   const { asset, textColor } = overrides?.[symbol] ?? {};
+  const splitColor = splitSymbolColor(symbol, overrides);
   const token = '{' + symbol + '}';
 
   function editStyle(values: Partial<SymbolStyle>) {
@@ -53,7 +54,8 @@ export function SymbolEditor({ appearance, change }: {
       setSymbol(event.target.value);
       setError('');
     }}>
-      {symbols.map(item => <option key={item} value={item}>{(overrides?.[item]?.asset || overrides?.[item]?.textColor)
+      {symbols.map(item => <option key={item} value={item}>{(overrides?.[item]?.asset ||
+        (overrides?.[item]?.textColor && !splitSymbolColor(item)))
         ? t('customizedSymbol', { token: '{' + item + '}' })
         : '{' + item + '}'}</option>)}
     </Select></label>
@@ -78,14 +80,19 @@ export function SymbolEditor({ appearance, change }: {
           const autoTextColor = event.target.checked;
           change(current => ({ ...current, autoTextColor }));
         }} />{t('textColorFromCard')}</label>
-      <div className="symbol-editor-color-row">
+      {splitColor ? <div className="symbol-editor-color-row">
+        <span>{t('symbolSplitColor', { token })}</span>
+        <span className="symbol-color-swatch" aria-hidden="true" style={{
+          background: `linear-gradient(to right, ${splitColor[0]} ${colorTransition[0] * 100}%, ${splitColor[1]} ${colorTransition[1] * 100}%)`
+        }} />
+      </div> : <div className="symbol-editor-color-row">
         <label className="color-field template-color">{t('symbolTextColor', { token })}
           <input type="color" value={textColor ?? defaultSymbolTextColor(symbol)}
             onChange={event => editStyle({ textColor: event.target.value })} />
         </label>
         <button type="button" className="icon-button" aria-label={t('restoreSymbolTextColor')} title={t('restoreSymbolTextColor')}
           disabled={!textColor} onClick={() => editStyle({ textColor: undefined })}><Icon name="reset" size={16} /></button>
-      </div>
+      </div>}
     </div>
   </fieldset>;
 }

@@ -96,13 +96,14 @@ function EditionDetails({ card }: { card: Card }) {
   </div>;
 }
 
-export function Inspector({ card, renderedCard, back, sharedFrame, presets, update, resetCard, selectAssets, choosePrinting, zone, selectZone, savePreset, fullArtBase, frameSets, editCustomFrame }: {
+export function Inspector({ card, renderedCard, back, sharedFrame, presets, update, resetCard, selectAssets, choosePrinting, zone, selectZone, savePreset, fullArtBase, frameSets, editCustomFrame, copyFrame, pasteFrame }: {
   card: Card; renderedCard: Card; back: boolean; sharedFrame: boolean; presets: Preset[]; update: (patch: Partial<Card>) => void;
   resetCard: () => void;
   selectAssets: (frame: boolean) => Promise<Asset | undefined>;
   choosePrinting: () => void; zone: keyof Zones | undefined; selectZone: (zone: keyof Zones | undefined) => void;
   savePreset: (name: string) => void;
   frameSets: FrameSet[]; editCustomFrame: () => void;
+  copyFrame?: () => void; pasteFrame?: () => void;
   fullArtBase?: TemplateAppearance;
 }) {
   const { t, locale } = useI18n();
@@ -222,7 +223,13 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
         </>}
       </>}
       {tab === 'frame' && <>
-        <SectionTitle icon="frames">{t('frame')}</SectionTitle>
+        <div className="inspector-section-header">
+          <SectionTitle icon="frames">{t('frame')}</SectionTitle>
+          <div className="inspector-actions">
+            <button type="button" className="icon-button" aria-label={t('copyFrame')} title={t('copyFrame')} disabled={!copyFrame} onClick={copyFrame}><Icon name="copy" /></button>
+            <button type="button" className="icon-button" aria-label={t('pasteFrame')} title={t('pasteFrame')} disabled={sharedFrame || !pasteFrame} onClick={pasteFrame}><Icon name="paste" /></button>
+          </div>
+        </div>
         {sharedFrame ? <p className="muted">{t(back ? 'projectFrameAppliedBack' : 'projectFrameApplied')}</p> : <label>{t('template')}<Select value={colorSet?.id ?? (card.frame.kind === 'template' ? card.frame.template : card.frame.kind)} onChange={event => {
           const value = event.target.value;
           if (isTemplate(value)) update({ frame: newTemplate(value, fullArtBase) });
@@ -239,6 +246,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
           {frameSets.length > 0 && <optgroup label={t('frameSets')}>
             {frameSets.map(set => <option key={set.id} value={set.id}>{set.name}</option>)}
           </optgroup>}
+          {colorSet && !frameSets.some(set => set.id === colorSet.id) && <option value={colorSet.id}>{colorSet.name}</option>}
           {card.frame.kind === 'custom' && <option value="custom">{t('existingPngFrame')}</option>}
           {(card.frame.kind === 'modern' || card.frame.kind === 'classic') && <option value={card.frame.kind}>{t('projectFrame')}</option>}
         </Select></label>}

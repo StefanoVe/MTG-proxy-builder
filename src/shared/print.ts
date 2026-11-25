@@ -3,7 +3,7 @@ import type { Card, PrintSettings } from './model.js';
 export const cardWidth = 63;
 export const cardHeight = 88;
 export const cardArchiveLimit = 3000;
-export const cardArchiveMaxBytes = 256 * 1024 * 1024;
+export const pdfMaxBytes = 256 * 1024 * 1024;
 export const pixels = { width: 744, height: 1039 };
 export const mmToPt = (mm: number) => mm * 72 / 25.4;
 export const papers = { A4: [210, 297], Letter: [215.9, 279.4] } as const;

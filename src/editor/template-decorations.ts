@@ -1,4 +1,6 @@
 import type { FrameDecoration } from '../shared/model.js';
+import { cardPaint } from './card-colors.js';
+import type { CardPaint } from './card-colors.js';
 import { templateBox } from './template-effects.js';
 
 type Motif = Extract<FrameDecoration['source'], { kind: 'motif' }>['motif'];
@@ -39,7 +41,7 @@ export function loadMotif(motif: Motif) {
 }
 
 export function drawDecorations(ctx: CanvasRenderingContext2D, layers: { decoration: FrameDecoration; image: HTMLImageElement }[],
-  cardColor: string, textColor: string) {
+  cardColor: CardPaint, textColor: CardPaint) {
   let tintBuffer: HTMLCanvasElement | undefined;
   ctx.save();
   for (const { decoration, image } of layers) {
@@ -61,7 +63,8 @@ export function drawDecorations(ctx: CanvasRenderingContext2D, layers: { decorat
     const tint = tintBuffer.getContext('2d')!;
     tint.drawImage(image, 0, 0, tintBuffer.width, tintBuffer.height);
     tint.globalCompositeOperation = 'source-in';
-    tint.fillStyle = decoration.tint === 'card' ? cardColor : decoration.tint === 'text' ? textColor : decoration.color;
+    const color = decoration.tint === 'card' ? cardColor : decoration.tint === 'text' ? textColor : decoration.color;
+    tint.fillStyle = cardPaint(tint, color, 0, tintBuffer.width);
     tint.fillRect(0, 0, tintBuffer.width, tintBuffer.height);
     ctx.drawImage(tintBuffer, left, top, targetW, targetH);
   }

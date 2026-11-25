@@ -1,6 +1,7 @@
 import { LocalizedError } from '../shared/i18n.js';
 import type { MessageKey } from '../shared/i18n.js';
-import { automaticTextColor, cardColorKeys, cardColors, toneOf } from './card-colors.js';
+import { automaticTextColor, cardColorKeys, cardColors, cardPaint, toneOf } from './card-colors.js';
+import type { CardPaint } from './card-colors.js';
 import { cardZones } from './card-zones.js';
 import { blendColorFrames } from './color-frames.js';
 import { colorFrameLayers } from '../shared/frame-colors.js';
@@ -95,7 +96,7 @@ function artwork(ctx: CanvasRenderingContext2D, image: HTMLImageElement, r: Rect
   ctx.restore();
 }
 
-function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: number, font: string, color: string,
+function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: number, font: string, color: CardPaint,
   align: CanvasTextAlign, customSize?: number) {
   if (!text || r.w < 2) return;
   const size = customSize ?? Math.min(max, r.h * 0.72);
@@ -107,8 +108,11 @@ function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: numb
   const finalSize = customSize === undefined ? Math.max(12, fitted)
     : Math.min(fitted, size * r.h / (2 * Math.max(metrics.actualBoundingBoxAscent, metrics.actualBoundingBoxDescent)));
   ctx.font = `${finalSize}px ${font}`;
-  ctx.fillStyle = color;
-  ctx.fillText(text, r.x + (align === 'center' ? r.w / 2 : align === 'right' ? r.w : 0), r.y + r.h / 2, r.w);
+  const alignment = align === 'center' ? .5 : align === 'right' ? 1 : 0;
+  const x = r.x + r.w * alignment;
+  const textWidth = Math.min(r.w, ctx.measureText(text).width);
+  ctx.fillStyle = cardPaint(ctx, color, x - textWidth * alignment, textWidth);
+  ctx.fillText(text, x, r.y + r.h / 2, r.w);
 }
 
 function canvasFontFamily(family?: string) {
@@ -118,7 +122,7 @@ function canvasFontFamily(family?: string) {
   return `"${family.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}", sans-serif`;
 }
 
-function drawRules(ctx: CanvasRenderingContext2D, text: string, r: Rect, ink: string, icons: Map<string, HTMLImageElement>, font: string,
+function drawRules(ctx: CanvasRenderingContext2D, text: string, r: Rect, ink: CardPaint, icons: Map<string, HTMLImageElement>, font: string,
   max: number, align: CanvasTextAlign) {
   if (!text) return true;
   const paragraphs = text.split('\n').map(ruleWords);
@@ -156,20 +160,21 @@ function drawRules(ctx: CanvasRenderingContext2D, text: string, r: Rect, ink: st
   ctx.beginPath();
   ctx.rect(r.x, r.y, r.w, r.h);
   ctx.clip();
-  ctx.fillStyle = ink;
   ctx.font = `${size}px ${font}`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   const space = ctx.measureText(' ').width;
   lines.forEach((line, i) => {
-    const lineWidth = align === 'left' ? 0 : line.reduce((sum, word, index) =>
+    const lineWidth = line.reduce((sum, word, index) =>
       sum + word.reduce((wordWidth, run) => wordWidth + measure(run), 0) + (index ? space : 0), 0);
     const free = Math.max(0, r.w - lineWidth);
     let x = r.x + (align === 'center' ? free / 2 : align === 'right' ? free : 0);
     const y = r.y + (i + 0.5) * size * 1.2;
+    const paint = cardPaint(ctx, ink, x, Math.min(r.w, lineWidth));
+    ctx.fillStyle = paint;
     for (const word of line) {
       for (const run of word) {
-        if (run.symbol) drawSymbol(ctx, icons, run.text, x, y - size * 0.48, size * 0.96, ink);
+        if (run.symbol) drawSymbol(ctx, icons, run.text, x, y - size * 0.48, size * 0.96, paint);
         else ctx.fillText(run.text, x, y);
         x += measure(run);
       }
@@ -266,9 +271,9 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   const overlay = colorFrames && colorFrames.length > 1 ? blendColorFrames(colorFrames, width, height) : colorFrames?.[0] ?? sourceOverlay;
   const zones = cardZones(card);
   const [ink, paper] = cardColors[toneOf(card)];
-  const textColor = appearance?.autoTextColor
-    ? automaticTextColor(card, appearance.symbolOverrides, paper)
-    : appearance?.textColor ?? '#24211e';
+  const autoColor = appearance ? automaticTextColor(card, appearance.symbolOverrides, paper) : paper;
+  const cardColor = typeof autoColor === 'string' ? paper : autoColor;
+  const textColor = appearance?.autoTextColor ? autoColor : appearance?.textColor ?? '#24211e';
   const font = canvasFontFamily(appearance?.fontFamily);
   const classic = card.frame.kind === 'classic';
   const illustration = box(zones.art);
@@ -300,8 +305,8 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   if (extraOverlay) ctx.drawImage(extraOverlay, 0, 0, width, height);
   if (appearance) {
     shadeTemplate(ctx, template ?? 'full-art', appearance);
-    drawDecorations(ctx, decorations, paper, textColor);
-    drawTemplateDividers(ctx, appearance, paper);
+    drawDecorations(ctx, decorations, cardColor, textColor);
+    drawTemplateDividers(ctx, appearance, cardColor);
   }
 
   const title = box(zones.title);
@@ -314,8 +319,10 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   const diameter = Math.min(41, title.h * 0.78, (title.w * 0.62 - manaGap * Math.max(0, mana.length - 1)) / Math.max(1, mana.length));
   const manaWidth = mana.length * diameter + manaGap * Math.max(0, mana.length - 1);
   if (!hidden.has('title')) drawLine('title', card.fields.name, { ...title, w: title.w - manaWidth - (mana.length ? 10 : 0) });
-  if (!hidden.has('title')) mana.forEach((token, index) => drawSymbol(ctx, icons, token, title.x + title.w - manaWidth + index * (diameter + manaGap),
-    title.y + (title.h - diameter) / 2, diameter, textColor));
+  if (!hidden.has('title')) mana.forEach((token, index) => {
+    const x = title.x + title.w - manaWidth + index * (diameter + manaGap);
+    drawSymbol(ctx, icons, token, x, title.y + (title.h - diameter) / 2, diameter, cardPaint(ctx, textColor, x, diameter));
+  });
   if (!hidden.has('type')) drawLine('type', card.fields.type, box(zones.type));
   if (stats && !hidden.has('stats')) drawLine('stats', stats, box(zones.stats));
   const result = hidden.has('rules') || drawRules(ctx, card.fields.rules, box(zones.rules), textColor, icons, font,

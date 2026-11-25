@@ -261,6 +261,8 @@ label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .fields { padding: 16px; overflow: auto; display: grid; align-content: start; gap: 12px; }
 .inspector-section-title { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--rule); font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; }
 .inspector-section-title svg, .field-label svg { color: var(--muted); }
+.inspector-section-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
+.inspector-section-header .inspector-section-title { padding-bottom: 0; border-bottom: 0; }
 .field-label { display: inline-flex; align-items: center; gap: 6px; }
 .inspector-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .fields .source button { flex: none; }
@@ -530,6 +532,7 @@ button, input:not([type="range"], [type="checkbox"]), select, textarea { border-
 .symbol-editor-color { display: grid; gap: 8px; border-top: 1px solid var(--rule); padding-top: 12px; }
 .symbol-editor-color-row { display: flex; align-items: center; gap: 8px; }
 .symbol-editor-color-row label { flex: 1; }
+.symbol-color-swatch { width: 48px; height: 20px; border: 1px solid var(--rule); border-radius: 4px; }
 .template-control-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
 .template-effect-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); align-items: start; gap: 10px; }
 .template-slider { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px; }

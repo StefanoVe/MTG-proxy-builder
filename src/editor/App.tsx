@@ -31,6 +31,7 @@ import { pngArtZone } from './compose.js';
 type ExportMode = 'sheet' | 'cards';
 type Panel = 'deck' | 'batch' | 'print' | ExportMode | 'printings' | 'frames' | 'templates' | 'switch-project';
 type WorkspacePane = 'deck' | 'preview' | 'properties';
+type FrameSettings = Pick<Card, 'frame' | 'zoneOverrides' | 'hiddenZones' | 'dividerOverrides'>;
 const workspacePanes: WorkspacePane[] = ['deck', 'preview', 'properties'];
 const usesArt = (card: Card) => card.source.editable && card.frame.kind !== 'printing';
 const imageKey = (projectId: string, card: Card) => `${projectId}/${card.id}/${card.source.printingId}/${usesArt(card) ? 'art' : 'scan'}`;
@@ -135,6 +136,7 @@ export function App() {
   const [exportRepair, setExportRepair] = useState<ExportMode>();
   const [editorTab, setEditorTab] = useState<FrameEditorTab>('full-art');
   const [customFrameId, setCustomFrameId] = useState('');
+  const [copiedFrame, setCopiedFrame] = useState<FrameSettings>();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [error, setError] = useState('');
@@ -171,6 +173,8 @@ export function App() {
   const selectedCard = card ? forEditing(card) : undefined;
   const cardSet = selectedCard?.frame.kind === 'color-set' ? selectedCard.frame.set : undefined;
   const selectedRendered = renderedCard ? forEditing(renderedCard) : undefined;
+  const selectedFrame = selectedRendered?.frame;
+  const canCopyFrame = selectedFrame?.kind === 'custom' || selectedFrame?.kind === 'color-set' || selectedFrame?.kind === 'template';
   const needsDownload = (item: Card) => !!project && needsImages(item) && !attemptedImages.current.has(imageKey(project.id, item));
   const nextImageCard = renderedCard && needsDownload(renderedCard) ? renderedCard
     : project && sharedFrame ? projectCards(project).find(needsDownload) : undefined;
@@ -205,6 +209,7 @@ export function App() {
     setZone(undefined);
     setBack(false);
     setCustomFrameId('');
+    setCopiedFrame(undefined);
     clearExportRepair();
     setSaving(false);
     setSaveError('');
@@ -895,6 +900,16 @@ export function App() {
       </main>
       {card && selectedCard && selectedRendered ? <Inspector key={`${card.id}/${back}`} card={selectedCard} renderedCard={selectedRendered} back={back} sharedFrame={!!sharedFrame && card.source.editable} presets={project.presets} frameSets={project.frameSets ?? []}
         editCustomFrame={manageFrameSets}
+        copyFrame={canCopyFrame ? () => {
+          const { frame, zoneOverrides, hiddenZones, dividerOverrides } = selectedRendered;
+          setCopiedFrame(structuredClone({ frame, zoneOverrides, hiddenZones, dividerOverrides }));
+          setNotice({ key: 'frameCopied' });
+        } : undefined}
+        pasteFrame={copiedFrame ? () => {
+          updateSide(card.id, copiedFrame);
+          setZone(undefined);
+          setNotice({ key: 'framePasted' });
+        } : undefined}
         resetCard={() => {
           if (back) update(card.id, { backSide: undefined });
           else commit(value => ({ ...value, cards: value.cards.map(item => item.id === card.id ? { ...createCard(item.source, item.count), id: item.id, backSide: item.backSide } : item) }));

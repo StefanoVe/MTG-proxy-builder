@@ -19,6 +19,9 @@ const bridge: ProxyAPI = {
   images: (mode, frame) => ipcRenderer.invoke('files:images', mode, frame),
   dropped: (data, name, frame) => ipcRenderer.invoke('files:dropped', data, name, frame),
   pdf: (name, data) => ipcRenderer.invoke('files:pdf', name, data),
-  cardArchive: (name, data) => ipcRenderer.invoke('files:card-archive', name, data)
+  beginCardArchive: () => ipcRenderer.invoke('files:begin-card-archive'),
+  appendCardArchive: (id, paths, data) => ipcRenderer.invoke('files:append-card-archive', id, paths, data),
+  saveCardArchive: (id, name) => ipcRenderer.invoke('files:save-card-archive', id, name),
+  discardCardArchive: id => ipcRenderer.invoke('files:discard-card-archive', id)
 };
 contextBridge.exposeInMainWorld('proxy', bridge);

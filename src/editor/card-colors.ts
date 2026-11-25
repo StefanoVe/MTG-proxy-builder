@@ -8,6 +8,9 @@ export const cardColors: Record<Exclude<Tone, 'auto'>, [string, string]> = {
 };
 const colorNames = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' } as const;
 type Color = keyof typeof colorNames;
+type SplitColor = readonly [string, string];
+export type CardPaint = string | SplitColor;
+export const colorTransition = [0.44, 0.56] as const;
 
 function symbolColors(token: string) {
   return token.trim().toUpperCase().split('/').map(part => /^(HW|HR)$/.test(part) ? part.slice(1) : part)
@@ -37,9 +40,34 @@ export function defaultSymbolTextColor(symbol: string) {
   return cardColors[tone][1];
 }
 
-export function automaticTextColor(card: Card, overrides: SymbolOverrides | undefined, fallback: string) {
-  if (!overrides) return fallback;
+export function splitSymbolColor(symbol: string, overrides?: SymbolOverrides): SplitColor | undefined {
+  const [left, right, extra] = symbolColors(manaSymbol(symbol) ?? symbol);
+  if (!left || !right || left === right || extra) return undefined;
+  const color = (part: Color) => overrides?.[part]?.textColor ?? defaultSymbolTextColor(part);
+  return [color(left), color(right)];
+}
+
+export function cardPaint(ctx: CanvasRenderingContext2D, color: CardPaint, x: number, width: number, fade = false) {
+  if (typeof color === 'string' && !fade) return color;
+  const gradient = ctx.createLinearGradient(x, 0, x + width, 0);
+  const [left, right] = typeof color === 'string' ? [color, color] : color;
+  gradient.addColorStop(fade ? .25 : 0, left);
+  gradient.addColorStop(fade ? .75 : 1, right);
+  if (typeof color !== 'string') {
+    gradient.addColorStop(colorTransition[0], left);
+    gradient.addColorStop(colorTransition[1], right);
+  }
+  if (fade) {
+    gradient.addColorStop(0, left + '00');
+    gradient.addColorStop(1, right + '00');
+  }
+  return gradient;
+}
+
+export function automaticTextColor(card: Card, overrides: SymbolOverrides | undefined, fallback: string): CardPaint {
   const colors = cardColorKeys(card);
+  if (colors.length === 2) return splitSymbolColor(colors.join('/'), overrides) ?? fallback;
+  if (!overrides) return fallback;
   const identity = manaSymbol(colors.join('/'));
   const identityColor = identity && overrides[identity]?.textColor;
   if (identityColor) return identityColor;

@@ -1,7 +1,7 @@
 {
   "name": "mtg-proxy-builder",
   "productName": "MTG Proxy Builder",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "private": true,
   "description": "Editor desktop per creare e stampare proxy di Magic: The Gathering",
   "author": "MTG Proxy Builder",
@@ -21,6 +21,7 @@
   "dependencies": {
     "@heroicons/react": "^2.2.0",
     "@modelcontextprotocol/server": "2.3.1",
+    "@zip.js/zip.js": "2.15.0",
     "fflate": "0.8.2",
     "pdf-lib": "1.17.1",
     "react": "19.2.3",

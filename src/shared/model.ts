@@ -183,7 +183,10 @@ export type ProxyAPI = {
   images(mode: 'files' | 'folder' | 'single', frame: boolean): Promise<{ assets: Asset[]; errors: string[] }>;
   dropped(bytes: Uint8Array, name: string, frame: boolean): Promise<Asset>;
   pdf(name: string, bytes: Uint8Array): Promise<boolean>;
-  cardArchive(name: string, bytes: Uint8Array): Promise<boolean>;
+  beginCardArchive(): Promise<string>;
+  appendCardArchive(id: string, paths: string[], bytes: Uint8Array): Promise<void>;
+  saveCardArchive(id: string, name: string): Promise<boolean>;
+  discardCardArchive(id: string): Promise<void>;
 };
 
 export const defaultCrop = { x: 0, y: 0, zoom: 1 };

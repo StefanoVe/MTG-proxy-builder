@@ -118,15 +118,23 @@ export function CardExportPanel({ project, initialDraft, onBusy, onExport, onOpe
     setFailure(undefined);
     setProgress(0);
     try {
-      const { createCardArchive, CardArchiveFaceError } = await import('./card-archive.js');
-      const data = await createCardArchive(faces, { geometry, fill, color, format, dpi, quality, copies }, setProgress, locale)
-        .catch((cause: unknown) => {
-          setFailure({
-            message: errorMessage(cause, locale),
-            face: cause instanceof CardArchiveFaceError ? cause : undefined
-          });
+      const { cardArchiveBatches, CardArchiveFaceError } = await import('./card-archive.js');
+      const id = await window.proxy.beginCardArchive();
+      try {
+        let completed = 0;
+        for await (const { paths, data } of cardArchiveBatches(faces, { geometry, fill, color, format, dpi, quality, copies }, locale)) {
+          await window.proxy.appendCardArchive(id, paths, data);
+          completed += paths.length;
+          setProgress(completed);
+        }
+        if (await window.proxy.saveCardArchive(id, project.name)) onExport();
+      } catch (cause) {
+        await window.proxy.discardCardArchive(id).catch(() => {});
+        setFailure({
+          message: errorMessage(cause, locale),
+          face: cause instanceof CardArchiveFaceError ? cause : undefined
         });
-      if (data && await window.proxy.cardArchive(project.name, data)) onExport();
+      }
     } catch (cause) {
       setFailure({ message: errorMessage(cause, locale) });
     } finally {

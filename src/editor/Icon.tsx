@@ -1,7 +1,7 @@
 import type { SVGProps } from 'react';
 import {
   ExclamationTriangleIcon, ArrowDownTrayIcon, ArrowPathIcon, ArrowUturnLeftIcon, ArrowsRightLeftIcon, Bars3BottomLeftIcon,
-  BookmarkSquareIcon, ChartBarIcon, CircleStackIcon, DocumentTextIcon, FunnelIcon, CheckCircleIcon,
+  BookmarkSquareIcon, ChartBarIcon, CircleStackIcon, ClipboardDocumentIcon, ClipboardIcon, DocumentTextIcon, FunnelIcon, CheckCircleIcon,
   MagnifyingGlassIcon, MagnifyingGlassPlusIcon, NewspaperIcon, PencilIcon, PhotoIcon,
   PlusIcon, ArrowUpTrayIcon, AdjustmentsHorizontalIcon, ArrowUpIcon, ArrowDownIcon, QueueListIcon, RectangleStackIcon, Square2StackIcon,
   TagIcon, TrashIcon, ViewfinderCircleIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon
@@ -20,6 +20,8 @@ const icons = {
   unmodified: CheckCircleIcon,
   undo: ArrowUturnLeftIcon,
   frames: Square2StackIcon,
+  copy: ClipboardDocumentIcon,
+  paste: ClipboardIcon,
   batch: QueueListIcon,
   export: ArrowUpTrayIcon,
   import: ArrowDownTrayIcon,

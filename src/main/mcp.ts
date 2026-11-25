@@ -12,6 +12,7 @@ import { archiveOptions, pdfOptions } from '../shared/mcp-export.js';
 import type { ExportRequest } from '../shared/mcp-export.js';
 import { createProject, projectSchema } from '../shared/model.js';
 import type { Project } from '../shared/model.js';
+import { openCardArchive } from './card-archive.js';
 import { getCard, printings, resolveDeck, search } from './catalog.js';
 import { getProject, imageLimit, listProjects, readLimitedFile, saveProject, storeImage } from './storage.js';
 
@@ -38,6 +39,32 @@ function parseList(text: string) {
   return parsed;
 }
 
+async function publishExport(temp: string, path: string) {
+  // A hard link publishes the complete file atomically and fails if the destination exists.
+  await link(temp, path).catch(async (cause: NodeJS.ErrnoException) => {
+    if (!['ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'EXDEV'].includes(cause.code ?? '')) throw cause;
+    await copyFile(temp, path, constants.COPYFILE_EXCL);
+  });
+}
+
+async function saveArchive(renderer: BrowserWindow, temp: string, path: string) {
+  const archive = await openCardArchive(temp);
+  try {
+    for (;;) {
+      const batch: { paths: string[]; data: Uint8Array } | { error: string } | null =
+        await renderer.webContents.executeJavaScript('globalThis.nextArchiveBatch()');
+      if (!batch) break;
+      if ('error' in batch) throw new Error(batch.error);
+      await archive.append(batch.paths, batch.data);
+    }
+    const bytes = await archive.finish();
+    await publishExport(temp, path);
+    return { path, bytes };
+  } finally {
+    await archive.discard();
+  }
+}
+
 async function renderFile(project: Project, path: string, request: ExportRequest) {
   if (extname(path).toLowerCase() !== `.${request.format}`) throw new Error(`Usa un percorso .${request.format}.`);
   const renderer = new BrowserWindow({
@@ -48,18 +75,15 @@ async function renderFile(project: Project, path: string, request: ExportRequest
     renderer.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     renderer.webContents.on('will-navigate', event => event.preventDefault());
     await renderer.loadFile(exportPage);
-    const response: { data: Uint8Array } | { error: string } = await renderer.webContents.executeJavaScript(
+    const response: { data: Uint8Array } | { archive: true } | { error: string } = await renderer.webContents.executeJavaScript(
       `globalThis.renderExport(${JSON.stringify(project)}, ${JSON.stringify(request)})`
     );
     if ('error' in response) throw new Error(response.error);
-    // A hard link publishes the complete file atomically and fails if the destination exists.
     const temp = join(dirname(path), `.mtg-export-${crypto.randomUUID()}.tmp`);
+    if ('archive' in response) return await saveArchive(renderer, temp, path);
     try {
       await writeFile(temp, response.data, { flag: 'wx', mode: 0o600 });
-      await link(temp, path).catch(async (cause: NodeJS.ErrnoException) => {
-        if (!['ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'EXDEV'].includes(cause.code ?? '')) throw cause;
-        await copyFile(temp, path, constants.COPYFILE_EXCL);
-      });
+      await publishExport(temp, path);
       return { path, bytes: response.data.byteLength };
     } finally {
       await rm(temp, { force: true });

@@ -240,7 +240,42 @@ try {
   await page.getByText('Carta o edizione non trovata · Non esiste').waitFor();
   await page.getByRole('dialog', { name: 'Importa lista' }).getByText('Importata 1 carta · 1 riga da correggere', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Chiudi', exact: true }).click();
-  await page.locator('.deck-list').getByRole('button', { name: /Lightning Bolt/ }).click();
+  const deck = page.locator('.deck-list');
+  const bolt = deck.getByRole('button', { name: /Lightning Bolt/ });
+  const frameTab = page.getByRole('button', { name: 'Cornice', exact: true });
+  const copyFrame = page.getByRole('button', { name: 'Copia cornice', exact: true });
+  const pasteFrame = page.getByRole('button', { name: 'Incolla cornice', exact: true });
+  const typeVisible = page.getByRole('checkbox', { name: 'Tipo', exact: true });
+  await bolt.click();
+  await frameTab.click();
+  assert.ok(await pasteFrame.isDisabled());
+  await choose(projectFrame, '');
+  await typeVisible.uncheck();
+  await copyFrame.click();
+  await page.getByText('Cornice copiata', { exact: true }).waitFor();
+  await typeVisible.check();
+  await deck.getByRole('button', { name: /Sole/ }).click();
+  await page.getByRole('button', { name: 'Retro', exact: true }).click();
+  await frameTab.click();
+  assert.ok(await copyFrame.isDisabled());
+  await pasteFrame.click();
+  await page.getByText('Cornice incollata', { exact: true }).waitFor();
+  assert.equal(await typeVisible.isChecked(), false);
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    const [source, target] = (await window.proxy.open(project.id)).cards;
+    return source.frame.kind === 'color-set' && target.frame.kind === 'printing'
+      && target.backSide?.frame.kind === 'color-set' && target.backSide.frame.set.id === source.frame.set.id
+      && target.backSide.hiddenZones?.includes('type') && target.backSide.fields.name === 'Luna';
+  });
+  await undoChange.click();
+  await page.getByText('Modifica annullata', { exact: true }).waitFor();
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    return !(await window.proxy.open(project.id)).cards[1].backSide;
+  });
+  await choose(projectFrame, 'full-art');
+  await bolt.click();
   await electron.evaluate(() => globalThis.setSmokeFiles('art'));
   await page.getByRole('button', { name: 'Modifica in blocco' }).click();
   await page.getByRole('button', { name: 'Scegli file' }).click();

@@ -3,15 +3,16 @@ import type { Locale } from '../shared/i18n.js';
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from 'electron';
 import type { IpcMainInvokeEvent, OpenDialogOptions } from 'electron';
 import { execFile } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { readdir } from 'node:fs/promises';
+import { constants, mkdtempSync, rmSync } from 'node:fs';
+import { copyFile, readdir, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { projectSchema } from '../shared/model.js';
-import { cardArchiveMaxBytes } from '../shared/print.js';
+import { cardArchiveLimit, pdfMaxBytes } from '../shared/print.js';
+import { openCardArchive } from './card-archive.js';
 import { getCard, printings, resolveDeck, search } from './catalog.js';
 import { checkForUpdate, releasesURL } from './updates.js';
 import { atomicWrite, getProject, imageLimit, imageResponse, listProjects, readLimitedFile, saveProject, storeImage } from './storage.js';
@@ -23,6 +24,12 @@ let window: BrowserWindow | null = null;
 let locale: Locale = 'en';
 let pendingSave = Promise.resolve();
 let writing = 0;
+let activeCardArchive: {
+  id: string;
+  file: ReturnType<typeof openCardArchive>;
+  saving?: boolean;
+  publishing?: Promise<void>;
+} | undefined;
 const idSchema = z.uuid();
 const imageExtensions = ['png', 'jpg', 'jpeg', 'webp'];
 const execFileAsync = promisify(execFile);
@@ -113,7 +120,7 @@ handle('files:images', z.tuple([z.enum(['files', 'folder', 'single']), z.boolean
 const bytes = z.instanceof(Uint8Array);
 handle('files:dropped', z.tuple([bytes, z.string().max(255), z.boolean()]), storeImage);
 handle('files:pdf', z.tuple([z.string().max(100), bytes]), async (name, data) => {
-  if (!window || data.length > 256 * 1024 * 1024 || Buffer.from(data.subarray(0, 5)).toString() !== '%PDF-') {
+  if (!window || data.length > pdfMaxBytes || Buffer.from(data.subarray(0, 5)).toString() !== '%PDF-') {
     throw new LocalizedError('invalidPdf');
   }
   const result = await dialog.showSaveDialog(window, {
@@ -125,18 +132,78 @@ handle('files:pdf', z.tuple([z.string().max(100), bytes]), async (name, data) =>
   return true;
 });
 
-handle('files:card-archive', z.tuple([z.string().max(100), bytes]), async (name, data) => {
-  if (!window || data.length > cardArchiveMaxBytes || data.length < 22 || data[0] !== 80 || data[1] !== 75 || data[2] !== 3 || data[3] !== 4) {
-    throw new LocalizedError('invalidZip');
+function getCardArchive(id: string) {
+  if (activeCardArchive?.id !== id) throw new LocalizedError('invalidZip');
+  return activeCardArchive;
+}
+
+async function discardCardArchive(id = activeCardArchive?.id) {
+  if (!activeCardArchive || activeCardArchive.id !== id) return;
+  const { file, publishing } = activeCardArchive;
+  activeCardArchive = undefined;
+  await publishing?.catch(() => {});
+  await (await file.catch(() => undefined))?.discard();
+}
+
+async function moveCardArchive(source: string, destination: string) {
+  try {
+    await rename(source, destination);
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== 'EXDEV') throw cause;
+    const temp = `${destination}.${crypto.randomUUID()}.tmp`;
+    await copyFile(source, temp, constants.COPYFILE_EXCL);
+    try {
+      await rename(temp, destination);
+    } finally {
+      await rm(temp, { force: true });
+    }
   }
-  const filename = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').trim();
-  const result = await dialog.showSaveDialog(window, {
-    defaultPath: translate(locale, 'archiveFilename', { name: filename || translate(locale, 'archiveDefaultName') }),
-    filters: [{ name: translate(locale, 'zipFile'), extensions: ['zip'] }]
-  });
-  if (result.canceled || !result.filePath) return false;
-  await atomicWrite(result.filePath, data);
-  return true;
+}
+
+handle('files:begin-card-archive', z.tuple([]), async () => {
+  if (activeCardArchive) throw new LocalizedError('invalidZip');
+  const id = crypto.randomUUID();
+  // Stage the archive before showing the save dialog so render errors can be fixed first.
+  const file = openCardArchive(join(tmpdir(), `mtg-archive-${id}.tmp`));
+  activeCardArchive = { id, file };
+  try {
+    await file;
+    return id;
+  } catch (cause) {
+    await discardCardArchive(id);
+    throw cause;
+  }
+});
+
+const archivePaths = z.array(z.string().max(96).regex(/^(fronte|retro)\/[0-9]{4}-[^\\/:*?"<>|\u0000-\u001f]+\.(png|jpg)$/u)).min(1).max(cardArchiveLimit);
+handle('files:append-card-archive', z.tuple([idSchema, archivePaths, bytes]), async (id, paths, data) => {
+  const archive = getCardArchive(id);
+  if (archive.saving) throw new LocalizedError('invalidZip');
+  await (await archive.file).append(paths, data);
+});
+handle('files:discard-card-archive', z.tuple([idSchema]), discardCardArchive);
+handle('files:save-card-archive', z.tuple([idSchema, z.string().max(100)]), async (id, name) => {
+  if (!window) throw new LocalizedError('invalidZip');
+  const owner = window;
+  const archive = getCardArchive(id);
+  if (archive.saving) throw new LocalizedError('invalidZip');
+  archive.saving = true;
+  try {
+    const file = await archive.file;
+    await file.finish();
+    if (activeCardArchive?.id !== id || owner.isDestroyed()) return false;
+    const filename = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-').trim();
+    const result = await dialog.showSaveDialog(owner, {
+      defaultPath: translate(locale, 'archiveFilename', { name: filename || translate(locale, 'archiveDefaultName') }),
+      filters: [{ name: translate(locale, 'zipFile'), extensions: ['zip'] }]
+    });
+    if (result.canceled || !result.filePath || activeCardArchive?.id !== id) return false;
+    archive.publishing = moveCardArchive(file.path, result.filePath);
+    await archive.publishing;
+    return true;
+  } finally {
+    await discardCardArchive(id);
+  }
 });
 
 function createWindow() {
@@ -150,12 +217,18 @@ function createWindow() {
   window = editor;
   editor.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   editor.webContents.on('will-navigate', event => event.preventDefault());
+  const abandonArchive = () => { void discardCardArchive().catch(console.error); };
+  editor.webContents.on('did-start-navigation', details => {
+    if (details.isMainFrame && !details.isSameDocument) abandonArchive();
+  });
+  editor.webContents.on('render-process-gone', abandonArchive);
   editor.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   editor.webContents.session.setPermissionCheckHandler(() => false);
   editor.on('close', event => {
-    if (!writing) return;
+    if (!writing && !activeCardArchive) return;
     event.preventDefault();
-    void pendingSave.then(() => { if (!editor.isDestroyed()) editor.close(); });
+    void Promise.allSettled([pendingSave, discardCardArchive()])
+      .then(() => { if (!editor.isDestroyed()) editor.close(); });
   });
   editor.on('closed', () => { window = null; });
   void editor.loadFile(rendererPath);

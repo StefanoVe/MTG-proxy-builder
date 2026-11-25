@@ -1,5 +1,7 @@
 import { pixels } from '../shared/print.ts';
 import type { Rect, Template, TemplateAppearance } from '../shared/model.js';
+import { cardPaint } from './card-colors.ts';
+import type { CardPaint } from './card-colors.js';
 
 const { width, height } = pixels;
 
@@ -107,7 +109,7 @@ export function shadeTemplate(ctx: CanvasRenderingContext2D, template: Template,
   wash(ctx, template, appearance, 'bottomEffect', color, appearance.rulesShade);
 }
 
-export function drawTemplateDividers(ctx: CanvasRenderingContext2D, appearance: TemplateAppearance, cardColor: string) {
+export function drawTemplateDividers(ctx: CanvasRenderingContext2D, appearance: TemplateAppearance, cardColor: CardPaint) {
   const color = appearance.accent ?? cardColor;
   const weight = appearance.dividerWeight ?? 2;
   const alignment = appearance.dividerAlign ?? 'center';
@@ -119,16 +121,9 @@ export function drawTemplateDividers(ctx: CanvasRenderingContext2D, appearance: 
     const y = zone === 'title' ? rect.y + rect.h + (appearance.dividerPadding ?? 6)
       : appearance.dividerPadding === undefined ? rect.y - 8 : rect.y - appearance.dividerPadding - weight;
     ctx.save();
-    if (appearance.dividerStyle === 'fade') {
-      const fade = ctx.createLinearGradient(x, 0, x + length, 0);
-      fade.addColorStop(0, color + '00');
-      fade.addColorStop(.25, color);
-      fade.addColorStop(.75, color);
-      fade.addColorStop(1, color + '00');
-      ctx.fillStyle = fade;
-      ctx.fillRect(x, y, length, weight);
-    } else if (appearance.dividerStyle === 'dashed') {
-      ctx.strokeStyle = color;
+    const paint = cardPaint(ctx, color, x, length, appearance.dividerStyle === 'fade');
+    if (appearance.dividerStyle === 'dashed') {
+      ctx.strokeStyle = paint;
       ctx.lineWidth = weight;
       ctx.setLineDash([weight * 4, weight * 2.5]);
       ctx.beginPath();
@@ -136,7 +131,7 @@ export function drawTemplateDividers(ctx: CanvasRenderingContext2D, appearance: 
       ctx.lineTo(x + length, y + weight / 2);
       ctx.stroke();
     } else {
-      ctx.fillStyle = color;
+      ctx.fillStyle = paint;
       ctx.fillRect(x, y, length, weight);
     }
     ctx.restore();
