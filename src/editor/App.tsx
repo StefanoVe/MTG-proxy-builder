@@ -94,6 +94,7 @@ export function App() {
   const [query, setQuery] = useState('');
   const [searchRevision, setSearchRevision] = useState(0);
   const [listQuery, setListQuery] = useState('');
+  const [modificationFilter, setModificationFilter] = useState<'all' | 'unmodified' | 'modified'>('all');
   const [deckCollapsed, setDeckCollapsed] = useState(false);
   const [searchFeedback, setSearchFeedback] = useState<Error>();
   const [searching, setSearching] = useState(false);
@@ -474,7 +475,7 @@ export function App() {
   if (!project) return <div className="initial" role="status">{t('openingApp')}</div>;
   const total = project.cards.reduce((sum, item) => sum + item.count, 0);
   const selection = project.cards.filter(item => selected.has(item.id));
-  const visibleCards = project.cards.filter(item => matchesCardSearch(item, listQuery, locale, t('untitledCard')));
+  const visibleCards = project.cards.filter(item => (modificationFilter === 'all' || isCardModified(item) === (modificationFilter === 'modified')) && matchesCardSearch(item, listQuery, locale, t('untitledCard')));
   const batchCards = selection.length ? selection : project.cards;
   const sharedArt = cardsWithSharedArt(project.cards);
   const loadingImage = !!renderedCard && (imageLoads.has(imageKey(project.id, renderedCard)) || needsDownload(renderedCard));
@@ -548,6 +549,7 @@ export function App() {
         {project.cards.length > 0 && <>
           <div className="deck-list-search">
             <input type="search" aria-label={t('filterAddedCards')} placeholder={t('filterAddedCards')} value={listQuery} onChange={event => setListQuery(event.target.value)} />
+            <button className="icon-button" type="button" aria-label={t(modificationFilter === 'all' ? 'filterAllCards' : modificationFilter === 'unmodified' ? 'filterUnmodifiedCards' : 'filterModifiedCards')} title={t(modificationFilter === 'all' ? 'filterAllCards' : modificationFilter === 'unmodified' ? 'filterUnmodifiedCards' : 'filterModifiedCards')} data-active={modificationFilter !== 'all'} onClick={() => setModificationFilter(value => value === 'all' ? 'unmodified' : value === 'unmodified' ? 'modified' : 'all')}><Icon name={modificationFilter === 'all' ? 'filter' : modificationFilter === 'unmodified' ? 'unmodified' : 'edit'} /></button>
           </div>
           <div className="selection-bar">
             <label className="check"><input type="checkbox" aria-label={t('selectVisibleCards')} disabled={!visibleCards.length} checked={visibleCards.length > 0 && visibleCards.every(item => selected.has(item.id))} onChange={event => {
@@ -586,7 +588,7 @@ export function App() {
               </li>;
             })}
           </ul>
-          {!visibleCards.length && <p className="deck-list-empty" role="status">{t('noAddedCardsFound')}</p>}
+          {!visibleCards.length && <p className="deck-list-empty" role="status">{t(modificationFilter === 'unmodified' ? 'noUnmodifiedCardsFound' : modificationFilter === 'modified' ? 'noModifiedCardsFound' : 'noAddedCardsFound')}</p>}
         </>}
       </aside>
       <main className="stage" onDragOver={event => { if (selectedCard?.source.editable && event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDraggingImage(true); } }} onDragLeave={event => {
