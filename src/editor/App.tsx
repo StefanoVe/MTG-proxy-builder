@@ -31,7 +31,7 @@ import { pngArtZone } from './compose.js';
 type ExportMode = 'sheet' | 'cards';
 type Panel = 'deck' | 'batch' | 'print' | ExportMode | 'printings' | 'frames' | 'templates' | 'switch-project';
 type WorkspacePane = 'deck' | 'preview' | 'properties';
-type FrameSettings = Pick<Card, 'frame' | 'zoneOverrides' | 'hiddenZones' | 'dividerOverrides'>;
+type FrameSettings = Pick<Card, 'zoneOverrides' | 'hiddenZones' | 'dividerOverrides'>;
 const workspacePanes: WorkspacePane[] = ['deck', 'preview', 'properties'];
 const usesArt = (card: Card) => card.source.editable && card.frame.kind !== 'printing';
 const imageKey = (projectId: string, card: Card) => `${projectId}/${card.id}/${card.source.printingId}/${usesArt(card) ? 'art' : 'scan'}`;
@@ -136,7 +136,7 @@ export function App() {
   const [exportRepair, setExportRepair] = useState<ExportMode>();
   const [editorTab, setEditorTab] = useState<FrameEditorTab>('full-art');
   const [customFrameId, setCustomFrameId] = useState('');
-  const [copiedFrame, setCopiedFrame] = useState<FrameSettings>();
+  const [copiedFrame, setCopiedFrame] = useState<{ frame: Card['frame']; settings: FrameSettings }>();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [error, setError] = useState('');
@@ -165,6 +165,7 @@ export function App() {
   const lastHistory = useRef(0);
   const card = project?.cards.find(item => item.id === active) ?? project?.cards[0];
   const sharedFrame = project ? projectFrame(project) : undefined;
+  const usesSharedFrame = !!sharedFrame && !!card?.source.editable;
   const renderedCard = useMemo(() => card && project ? withProjectFrame(card, project) : undefined, [card, project]);
   const forEditing = (item: Card) => {
     const side = cardSide(item, back);
@@ -898,17 +899,18 @@ export function App() {
           <div className="deck-add empty-deck-add">{deckAddActions}</div>
         </div>}
       </main>
-      {card && selectedCard && selectedRendered ? <Inspector key={`${card.id}/${back}`} card={selectedCard} renderedCard={selectedRendered} back={back} sharedFrame={!!sharedFrame && card.source.editable} presets={project.presets} frameSets={project.frameSets ?? []}
+      {card && selectedCard && selectedRendered ? <Inspector key={`${card.id}/${back}`} card={selectedCard} renderedCard={selectedRendered} back={back} sharedFrame={usesSharedFrame} presets={project.presets} frameSets={project.frameSets ?? []}
         editCustomFrame={manageFrameSets}
         copyFrame={canCopyFrame ? () => {
           const { frame, zoneOverrides, hiddenZones, dividerOverrides } = selectedRendered;
-          setCopiedFrame(structuredClone({ frame, zoneOverrides, hiddenZones, dividerOverrides }));
+          setCopiedFrame(structuredClone({ frame, settings: { zoneOverrides, hiddenZones, dividerOverrides } }));
           setNotice({ key: 'frameCopied' });
         } : undefined}
         pasteFrame={copiedFrame ? () => {
-          updateSide(card.id, copiedFrame);
+          const { frame, settings } = copiedFrame;
+          updateSide(card.id, usesSharedFrame ? settings : { frame, ...settings });
           setZone(undefined);
-          setNotice({ key: 'framePasted' });
+          setNotice({ key: usesSharedFrame ? 'frameSettingsPasted' : 'framePasted' });
         } : undefined}
         resetCard={() => {
           if (back) update(card.id, { backSide: undefined });

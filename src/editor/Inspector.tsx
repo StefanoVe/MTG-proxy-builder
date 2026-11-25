@@ -109,6 +109,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
   const { t, locale } = useI18n();
   const [tab, setTab] = useState<'card' | 'art' | 'frame'>('card');
   const [presetName, setPresetName] = useState('');
+  const pasteLabel = t(sharedFrame ? 'pasteFrameSettings' : 'pasteFrame');
   const custom = card.frame.kind === 'custom' ? card.frame : undefined;
   const colorSet = renderedCard.frame.kind === 'color-set' ? renderedCard.frame.set : undefined;
   const original = renderedCard.frame.kind === 'printing';
@@ -227,7 +228,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
           <SectionTitle icon="frames">{t('frame')}</SectionTitle>
           <div className="inspector-actions">
             <button type="button" className="icon-button" aria-label={t('copyFrame')} title={t('copyFrame')} disabled={!copyFrame} onClick={copyFrame}><Icon name="copy" /></button>
-            <button type="button" className="icon-button" aria-label={t('pasteFrame')} title={t('pasteFrame')} disabled={sharedFrame || !pasteFrame} onClick={pasteFrame}><Icon name="paste" /></button>
+            <button type="button" className="icon-button" aria-label={pasteLabel} title={pasteLabel} disabled={!pasteFrame} onClick={pasteFrame}><Icon name="paste" /></button>
           </div>
         </div>
         {sharedFrame ? <p className="muted">{t(back ? 'projectFrameAppliedBack' : 'projectFrameApplied')}</p> : <label>{t('template')}<Select value={colorSet?.id ?? (card.frame.kind === 'template' ? card.frame.template : card.frame.kind)} onChange={event => {

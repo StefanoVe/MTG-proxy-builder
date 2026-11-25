@@ -245,17 +245,41 @@ try {
   const frameTab = page.getByRole('button', { name: 'Cornice', exact: true });
   const copyFrame = page.getByRole('button', { name: 'Copia cornice', exact: true });
   const pasteFrame = page.getByRole('button', { name: 'Incolla cornice', exact: true });
+  const pasteSettings = page.getByRole('button', { name: 'Incolla impostazioni cornice', exact: true });
   const typeVisible = page.getByRole('checkbox', { name: 'Tipo', exact: true });
+  const elementPositions = page.getByLabel('Posizione degli elementi');
+  const zoneX = page.locator('.zone-fields').getByRole('spinbutton', { name: 'X', exact: true });
   await bolt.click();
   await frameTab.click();
-  assert.ok(await pasteFrame.isDisabled());
+  assert.ok(await pasteSettings.isDisabled());
   await choose(projectFrame, '');
+  await choose(elementPositions, 'title');
+  await zoneX.fill('10');
   await typeVisible.uncheck();
   await copyFrame.click();
   await page.getByText('Cornice copiata', { exact: true }).waitFor();
   await typeVisible.check();
+  await page.getByRole('button', { name: 'Ripristina posizione della cornice' }).click();
+  await choose(projectFrame, 'full-art');
   await deck.getByRole('button', { name: /Sole/ }).click();
-  await page.getByRole('button', { name: 'Retro', exact: true }).click();
+  const backSide = page.getByRole('button', { name: 'Retro', exact: true });
+  await backSide.click();
+  await frameTab.click();
+  await pasteSettings.click();
+  await page.getByText('Impostazioni della cornice incollate', { exact: true }).waitFor();
+  assert.equal(await typeVisible.isChecked(), false);
+  await choose(elementPositions, 'title');
+  assert.equal(await zoneX.inputValue(), '10');
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    const saved = await window.proxy.open(project.id);
+    const side = saved.cards[1].backSide;
+    return saved.frame?.kind === 'template' && saved.frame.template === 'full-art'
+      && side?.frame.kind === 'printing' && side.hiddenZones?.includes('type') && side.zoneOverrides?.title?.x === 10;
+  });
+  await undoChange.click();
+  await choose(projectFrame, '');
+  await backSide.click();
   await frameTab.click();
   assert.ok(await copyFrame.isDisabled());
   await pasteFrame.click();
@@ -266,7 +290,8 @@ try {
     const [source, target] = (await window.proxy.open(project.id)).cards;
     return source.frame.kind === 'color-set' && target.frame.kind === 'printing'
       && target.backSide?.frame.kind === 'color-set' && target.backSide.frame.set.id === source.frame.set.id
-      && target.backSide.hiddenZones?.includes('type') && target.backSide.fields.name === 'Luna';
+      && target.backSide.hiddenZones?.includes('type') && target.backSide.zoneOverrides?.title?.x === 10
+      && target.backSide.fields.name === 'Luna';
   });
   await undoChange.click();
   await page.getByText('Modifica annullata', { exact: true }).waitFor();
