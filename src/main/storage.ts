@@ -5,6 +5,7 @@ import { basename, join } from 'node:path';
 import { app, nativeImage } from 'electron';
 import { assetId, projectSchema } from '../shared/model.js';
 import type { Asset, Project } from '../shared/model.js';
+import { clearInvalidFrameMirrors } from '../shared/templates.js';
 import { isWebP, webpSize } from './webp.js';
 
 export const imageLimit = 32 * 1024 * 1024;
@@ -30,7 +31,7 @@ export async function getProject(id: string) {
       card.frame = { kind: 'printing' };
     }
   }
-  return project;
+  return clearInvalidFrameMirrors(project);
 }
 
 export async function listProjects() {
@@ -45,7 +46,7 @@ export async function listProjects() {
 
 export async function saveProject(project: Project) {
   await mkdir(projectDir(), { recursive: true });
-  await atomicWrite(join(projectDir(), `${project.id}.json`), JSON.stringify(project));
+  await atomicWrite(join(projectDir(), `${project.id}.json`), JSON.stringify(clearInvalidFrameMirrors(project)));
 }
 
 export async function readLimitedFile(path: string, limit: number) {

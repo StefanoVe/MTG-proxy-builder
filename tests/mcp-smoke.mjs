@@ -46,11 +46,18 @@ try {
     'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGOQt3B+vzOdITKvQEpWFgAg0gQ1noIrUAAAAABJRU5ErkJggg==', 'base64'
   ));
   const { asset } = await ok('import_image', { path: artwork });
-  const project = { ...createProject(), name: 'MCP smoke', cards: [{
+  const master = {
     ...createCard({ ...blankCard, name: 'MCP Test', mana: '{R}' }, 2),
     art: asset.id,
     frame: { kind: 'template', template: 'full-art' }
-  }] };
+  };
+  const child = {
+    ...createCard({ ...blankCard, name: 'MCP Mirror' }),
+    art: asset.id,
+    frame: { kind: 'printing' },
+    frameMirror: { cardId: master.id, back: false }
+  };
+  const project = { ...createProject(), name: 'MCP smoke', cards: [master, child] };
   const { projectId } = await ok('save_project_copy', { project });
   assert.notEqual(projectId, project.id);
   assert.deepEqual(await ok('list_projects'), { projects: [{ id: projectId, name: project.name }] });
@@ -66,7 +73,7 @@ try {
   const { width, height } = doc.getPage(0).getSize();
   assert.ok(Math.abs(width - 612) < 0.001 && Math.abs(height - 792) < 0.001);
   const entries = unzipSync(await readFile(zip));
-  assert.deepEqual(Object.keys(entries), ['fronte/0001-MCP Test.jpg', 'fronte/0002-MCP Test.jpg']);
+  assert.deepEqual(Object.keys(entries), ['fronte/0001-MCP Test.jpg', 'fronte/0002-MCP Test.jpg', 'fronte/0003-MCP Mirror.jpg']);
   assert.deepEqual(Array.from(entries['fronte/0001-MCP Test.jpg'].subarray(0, 2)), [255, 216]);
   assert.ok((await call('export_pdf', { projectId, path: pdf })).isError);
   assert.ok((await call('export_pdf', { projectId, path: 'relative.pdf' })).isError);

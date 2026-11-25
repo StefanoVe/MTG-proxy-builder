@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cardsWithSharedArt } from '../src/shared/shared-art.ts';
-import { blankCard, cardSide, createCard, createProject, defaultZones, isCardModified, projectSchema, rebaseBackSide, sideOrientation, sideState } from '../src/shared/model.ts';
+import { blankCard, cardSide, createCard, createProject, defaultZones, isCardModified, projectSchema, rebaseBackSide, sideFrameSettings, sideOrientation, sideState } from '../src/shared/model.ts';
 import type { Asset, Card, FrameSet } from '../src/shared/model.ts';
 import { colorFrameLayers, colorsForFrame } from '../src/shared/frame-colors.ts';
 import { matchBatch, matchesCardSearch, parseDeck } from '../src/shared/deck.ts';
 import { cardWidth, cardHeight, mmToPt, papers, printSheets } from '../src/shared/print.ts';
-import { newTemplate, projectCards, templateAppearance, withProjectTemplate } from '../src/shared/templates.ts';
+import { clearInvalidFrameMirrors, newTemplate, projectCards, projectFrameResolver, templateAppearance, withProjectTemplate } from '../src/shared/templates.ts';
 
 const options = { paper: 'A4', cut: true, backs: true } as const;
 const image = 'a'.repeat(64);
@@ -82,6 +82,67 @@ test('alignment overrides survive saving and project frames independently for ea
   const [rendered] = projectCards(project);
   assert.deepEqual(rendered.textAlignOverrides, { title: 'right', rules: 'center' });
   assert.deepEqual(cardSide(rendered, true).textAlignOverrides, { rules: 'right' });
+});
+
+test('multiple sides mirror the source settings in previews and scoped exports', () => {
+  const source = createCard({ ...blankCard, name: 'Source', images: { back: image } });
+  source.backSide = sideState({ ...cardSide(source, true), frame: newTemplate('extended-art'),
+    zoneOverrides: { title: defaultZones.title }, hiddenZones: ['type'], dividerOverrides: { titleDivider: true },
+    textAlignOverrides: { rules: 'center' } });
+  const first = { ...card('First'), frameMirror: { cardId: source.id, back: true }, art: image, crop: { x: 0.5, y: 0.25, zoom: 2 } };
+  const second = createCard({ ...blankCard, name: 'Second', images: { back: image } });
+  second.backSide = sideState({ ...cardSide(second, true), frameMirror: first.frameMirror });
+  const project = projectSchema.parse(JSON.parse(JSON.stringify({ ...createProject(), cards: [source, first, second] })));
+  const [savedSource, savedFirst, savedSecond] = project.cards;
+  assert.ok(isCardModified(savedSecond));
+  assert.equal(cardSide(savedFirst, true).frameMirror, undefined);
+  const [renderedFirst, renderedSecond] = projectCards(project, [savedFirst, savedSecond]);
+  const sourceSettings = sideFrameSettings(cardSide(savedSource, true));
+  assert.deepEqual(sideFrameSettings(renderedFirst), sourceSettings);
+  assert.deepEqual(sideFrameSettings(cardSide(renderedSecond, true)), sourceSettings);
+  assert.deepEqual(sideFrameSettings(renderedSecond), sideFrameSettings(savedSecond));
+  assert.deepEqual(renderedFirst.fields, first.fields);
+  assert.equal(renderedFirst.art, first.art);
+  assert.deepEqual(renderedFirst.crop, first.crop);
+  assert.deepEqual(savedFirst.frame, first.frame);
+
+  const projectFrame = newTemplate('full-art');
+  savedSource.backSide!.hiddenZones = ['title'];
+  savedSource.backSide!.dividerOverrides = undefined;
+  const [updatedFirst, updatedSecond] = projectCards({ ...project, frame: projectFrame }, [savedFirst, savedSecond]);
+  for (const side of [updatedFirst, cardSide(updatedSecond, true)]) {
+    assert.deepEqual(side.frame, projectFrame);
+    assert.deepEqual(side.hiddenZones, ['title']);
+    assert.equal(side.dividerOverrides, undefined);
+  }
+});
+
+test('mirroring a switched-off or invalid source restores the saved settings', () => {
+  const source = { ...card('Source'), frame: newTemplate('full-art') };
+  const local = { ...card('Local'), frame: newTemplate('extended-art'), hiddenZones: ['stats'] as const };
+  const target: Card = { ...local, hiddenZones: [...local.hiddenZones], frameMirror: { cardId: source.id, back: false } };
+  const project = { ...createProject(), cards: [source, target] };
+  const resolver = projectFrameResolver(project);
+  assert.deepEqual(resolver.mirrorOptions(source, false), []);
+  assert.deepEqual(resolver.mirrorOptions(target, false), [target.frameMirror]);
+
+  const scan: Card = { ...source, frame: { kind: 'printing' } };
+  const paused = { ...project, cards: [scan, target] };
+  assert.equal(clearInvalidFrameMirrors(paused), paused);
+  assert.equal(projectFrameResolver(paused).sourceSide(target, false, target.frameMirror!)?.frame.kind, 'printing');
+  assert.deepEqual(sideFrameSettings(projectCards(paused)[1]), sideFrameSettings(target));
+  assert.deepEqual(projectFrameResolver(paused).mirrorOptions(target, false), []);
+  assert.deepEqual(projectCards(project)[1].frame, source.frame);
+
+  const invalidTargets = [target, { ...target, frameMirror: { cardId: source.id, back: true } },
+    { ...target, frameMirror: { cardId: target.id, back: false } }];
+  for (const [index, invalid] of invalidTargets.entries()) {
+    const broken = { ...project, cards: index === 0 ? [invalid] : [source, invalid] };
+    const cleaned = clearInvalidFrameMirrors(broken).cards.at(-1)!;
+    assert.equal(cleaned.frameMirror, undefined);
+    assert.deepEqual(sideFrameSettings(cleaned), sideFrameSettings(target));
+    assert.deepEqual(sideFrameSettings(projectCards(broken).at(-1)!), sideFrameSettings(target));
+  }
 });
 
 test('decklist import preserves order, quantities, set and collector number and reports invalid quantities', () => {

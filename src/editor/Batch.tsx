@@ -24,7 +24,7 @@ export function Batch({ cards, selectionCount, hiddenSelectionCount, sharedFrame
   const eligible = cards.filter(card => card.source.editable);
   const selected = rows.filter(row => row.accept && row.cardId);
   const collisions = new Set(selected.map(row => row.cardId)).size !== selected.length;
-  const presetCards = eligible.filter(card => overwrite || !hasOverride(card, 'frame'));
+  const presetCards = eligible.filter(card => !card.frameMirror && (overwrite || !hasOverride(card, 'frame')));
   const chosenPreset = presets.find(item => item.id === preset);
   const chosenSet = frameSets.find(item => item.id === preset);
   const chosenFrame: Card['frame'] | undefined = isTemplate(preset) ? newTemplate(preset, fullArtBase)

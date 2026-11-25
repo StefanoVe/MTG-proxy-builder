@@ -8,6 +8,14 @@ import type { Card, Rect, Zones } from '../shared/model.js';
 import { compose } from './compose.js';
 import { drawCardImage, imageGeometry, sheetImage } from './card-images.js';
 import type { PrintSettings } from '../shared/model.js';
+import { Icon } from './Icon.js';
+
+export function PreviewGuidesButton({ visible, toggle }: { visible: boolean; toggle: () => void }) {
+  const { t } = useI18n();
+  const label = t('previewGuides');
+  return <button type="button" className="icon-button preview-guides-button" aria-label={label} title={label}
+    aria-pressed={visible} onClick={toggle}><Icon name="grid" /></button>;
+}
 
 export function Preview({ card, back = false, showThirds = false, onCrop, zone, guide, onZone, hideWarning, hideArtworkWarning, bleedSettings, sheet = false }: {
   card: Card;

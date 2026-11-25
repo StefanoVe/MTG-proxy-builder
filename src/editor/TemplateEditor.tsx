@@ -11,7 +11,7 @@ import { defaultFrameTextAlign, defaultFrameTextSizes } from '../shared/template
 import type { CustomFrame } from '../shared/templates.js';
 import { FontPicker, ZoneFields, zoneLabels } from './Inspector.js';
 import { Icon } from './Icon.js';
-import { Preview } from './Preview.js';
+import { Preview, PreviewGuidesButton } from './Preview.js';
 import { importFrameArtwork } from './frame-artwork.js';
 import { SymbolEditor } from './SymbolEditor.js';
 import { templateEffectLimits } from './template-effects.js';
@@ -45,11 +45,13 @@ function ColorControl({ label, value, change }: { label: string; value: string; 
   </label>;
 }
 
-export function TemplateEditor({ tab, selectTab, appearance, customFrame, customControls, reset, activeCard, cards, fonts, change, saving, saveError, retry }: {
+export function TemplateEditor({ tab, selectTab, appearance, customFrame, customControls, reset, activeCard, cards, fonts, change, saving, saveError, retry,
+  showPreviewGuides, togglePreviewGuides }: {
   tab: FrameEditorTab; selectTab: (tab: FrameEditorTab) => void; appearance: TemplateAppearance;
   customFrame?: CustomFrame; customControls?: ReactNode; reset: () => void;
   activeCard?: Card; cards: Card[]; fonts: string[]; change: (update: AppearanceChange) => void;
   saving: boolean; saveError: string; retry: () => void;
+  showPreviewGuides: boolean; togglePreviewGuides: () => void;
 }) {
   const { t, locale } = useI18n();
   const template = tab === 'custom' ? 'full-art' : tab;
@@ -169,9 +171,10 @@ export function TemplateEditor({ tab, selectTab, appearance, customFrame, custom
           {!previewSource && <label>{t('sampleColor')}<Select value={sampleColor} onChange={event => setSampleColor(event.target.value as FrameColor)}>
             {frameColors.map(color => <option key={color} value={color}>{t(frameColorNames[color])}</option>)}
           </Select></label>}
+          <PreviewGuidesButton visible={showPreviewGuides} toggle={togglePreviewGuides} />
         </div>
         <div className="template-preview-card">
-          <Preview card={preview} showThirds hideWarning={!previewSource} guide={guide} zone={!customSetup && section === 'layout' ? layoutZone : undefined}
+          <Preview card={preview} showThirds={showPreviewGuides} hideWarning={!previewSource} guide={guide} zone={!customSetup && section === 'layout' ? layoutZone : undefined}
             onZone={guide ? rect => editDecoration({ rect }) : updateZone} />
         </div>
       </section>

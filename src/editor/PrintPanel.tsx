@@ -8,13 +8,16 @@ import { bleedMm, cardHeight, cardWidth, cutSegments, papers, printSheets } from
 import { imageFaces } from './card-images.js';
 import { compose } from './compose.js';
 import { Preview } from './Preview.js';
+import { allCardsScope, cardsInScope, ExportScope } from './ExportScope.js';
+import type { Scope, ScopeOptions } from './ExportScope.js';
 
 type Faces = ReturnType<typeof imageFaces>;
 type Issue = Faces[number] & { cause: unknown };
-export type PrintDraft = { settings: PrintSettings; customMm: string; pageIndex: number };
+export type PrintDraft = { settings: PrintSettings; customMm: string; pageIndex: number; scope: Scope };
 
-export function PrintPanel({ project, initialDraft, onExport, onBusy, onOpenCard }: {
+export function PrintPanel({ project, scopeOptions, initialDraft, onExport, onBusy, onOpenCard }: {
   project: Project;
+  scopeOptions: ScopeOptions;
   initialDraft?: PrintDraft;
   onExport: () => void;
   onBusy: (value: boolean) => void;
@@ -23,6 +26,7 @@ export function PrintPanel({ project, initialDraft, onExport, onBusy, onOpenCard
   const { t, locale } = useI18n();
   const [settings, setSettings] = useState<PrintSettings>(initialDraft?.settings ?? { paper: 'A4', cut: true, backs: true });
   const [customMm, setCustomMm] = useState(initialDraft?.customMm ?? '3');
+  const [scope, setScope] = useState(initialDraft?.scope ?? allCardsScope);
   const valid = settings.bleed !== 'custom' || (customMm !== '' && Number.isFinite(Number(customMm)) && Number(customMm) >= 0 && Number(customMm) <= 10);
   const margin = valid ? bleedMm(settings) : 0;
   const [index, setIndex] = useState(initialDraft?.pageIndex ?? 0);
@@ -30,9 +34,10 @@ export function PrintPanel({ project, initialDraft, onExport, onBusy, onOpenCard
   const [error, setError] = useState('');
   const [preflight, setPreflight] = useState<{ faces: Faces; issues: Issue[] }>();
   const [paperW, paperH] = papers[settings.paper];
-  const count = project.cards.reduce((sum, card) => sum + card.count, 0);
+  const scopedCards = useMemo(() => cardsInScope(project.cards, scope), [project.cards, scope]);
+  const count = scopedCards?.reduce((sum, card) => sum + card.count, 0) ?? 0;
   const limit = 1500;
-  const cards = useMemo(() => count <= limit ? projectCards(project) : [], [count, project]);
+  const cards = useMemo(() => scopedCards && count <= limit ? projectCards(project, scopedCards) : [], [count, project, scopedCards]);
   const sheets = useMemo(() => printSheets(cards, settings), [cards, settings]);
   const faces = useMemo(() => imageFaces(cards, settings.backs), [cards, settings.backs]);
   const issues = preflight?.faces === faces ? preflight.issues : undefined;
@@ -91,10 +96,12 @@ export function PrintPanel({ project, initialDraft, onExport, onBusy, onOpenCard
         <strong>{card.fields.name || t('untitledCard')}</strong> · {t(back ? 'back' : 'front')} · {errorMessage(cause, locale)}
       </li>)}</ul>
       <button type="button" disabled={working}
-        onClick={() => onOpenCard(firstIssue.card.id, firstIssue.back, { settings, customMm, pageIndex: current })}>{t('openFirstPdfIssue')}</button>
+        onClick={() => onOpenCard(firstIssue.card.id, firstIssue.back, { settings, customMm, pageIndex: current, scope })}>{t('openFirstPdfIssue')}</button>
     </div>}
     <div className="print-panel">
       <div className="print-options">
+        <ExportScope scope={scope} options={scopeOptions} count={project.cards.length} invalid={!scopedCards} disabled={working}
+          onChange={next => { setScope(next); setIndex(0); setError(''); }} />
         <label>{t('paper')}<Select disabled={working} value={settings.paper} onChange={event => setSettings({ ...settings, paper: event.target.value as PrintSettings['paper'] })}>
           <option>A4</option><option>Letter</option>
         </Select></label>

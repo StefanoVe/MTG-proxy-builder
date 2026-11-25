@@ -4,12 +4,13 @@ import {
   BookmarkSquareIcon, ChartBarIcon, CircleStackIcon, ClipboardDocumentIcon, ClipboardIcon, DocumentTextIcon, FunnelIcon, CheckCircleIcon,
   MagnifyingGlassIcon, MagnifyingGlassPlusIcon, NewspaperIcon, PencilIcon, PhotoIcon,
   PlusIcon, ArrowUpTrayIcon, AdjustmentsHorizontalIcon, ArrowUpIcon, ArrowDownIcon, QueueListIcon, RectangleStackIcon, Square2StackIcon,
-  TagIcon, TrashIcon, ViewfinderCircleIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon
+  TableCellsIcon, TagIcon, TrashIcon, ViewfinderCircleIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon
 } from '@heroicons/react/24/outline';
 
 const icons = {
   warning: ExclamationTriangleIcon,
   compare: ArrowsRightLeftIcon,
+  grid: TableCellsIcon,
   collapse: ChevronLeftIcon,
   expand: ChevronRightIcon,
   settings: AdjustmentsHorizontalIcon,

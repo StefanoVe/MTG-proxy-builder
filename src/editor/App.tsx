@@ -3,11 +3,11 @@ import { Select } from './Select.js';
 import type { Locale, MessageKey } from '../shared/i18n.js';
 import { errorMessage, LocalizedError } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
-import { customFrameAppearance, frameAppearance, presetFrame, projectCards, projectFrame, templateAppearance, withProjectFrame } from '../shared/templates.js';
+import { clearInvalidFrameMirrors, customFrameAppearance, frameAppearance, frameMirrorFor, presetFrame, projectCards, projectFrame, projectFrameResolver, templateAppearance } from '../shared/templates.js';
 import type { CustomFrame } from '../shared/templates.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { assetURL, blankCard, cardSide, createCard, createProject, defaultCrop, defaultZones, isCardModified, rebaseBackSide, sideOrientation, sideState } from '../shared/model.js';
+import { assetURL, blankCard, cardSide, createCard, createProject, defaultCrop, defaultZones, isCardModified, rebaseBackSide, sideFrameSettings, sideOrientation, sideState } from '../shared/model.js';
 import type { Card, DeckEntry, FrameSet, Printing, Project, Rect, Template, TemplateAppearance, Zones } from '../shared/model.js';
 import { matchesCardSearch, parseDeckRows } from '../shared/deck.js';
 import { cardsWithSharedArt } from '../shared/shared-art.js';
@@ -16,7 +16,7 @@ import { FrameSets } from './FrameSets.js';
 import { FrameGallery } from './FrameGallery.js';
 import { Batch } from './Batch.js';
 import { Inspector } from './Inspector.js';
-import { Preview } from './Preview.js';
+import { Preview, PreviewGuidesButton } from './Preview.js';
 import { PrintPanel } from './PrintPanel.js';
 import type { PrintDraft } from './PrintPanel.js';
 import { PrintChoices } from './PrintChoices.js';
@@ -37,6 +37,7 @@ const usesArt = (card: Card) => card.source.editable && card.frame.kind !== 'pri
 const imageKey = (projectId: string, card: Card) => `${projectId}/${card.id}/${card.source.printingId}/${usesArt(card) ? 'art' : 'scan'}`;
 const needsImages = (card: Card) => !!card.source.printingId && (usesArt(card)
   ? !(card.art || card.source.images.art) : !card.source.images.front);
+const mirrorValue = (cardId: string, back: boolean) => `${cardId}/${back ? 'back' : 'front'}`;
 function editableSource(source: Card['source']): Card['source'] {
   if (source.editable) return source;
   const sections = ['split', 'aftermath', 'adventure'].includes(source.layout) ? source.details?.faces : undefined;
@@ -129,6 +130,8 @@ export function App() {
   const [zone, setZone] = useState<keyof Zones>();
   const [back, setBack] = useState(false);
   const [compare, setCompare] = useState(false);
+  const [showPreviewGuides, setShowPreviewGuides] = useState(true);
+  const togglePreviewGuides = () => setShowPreviewGuides(visible => !visible);
   const [panel, setPanel] = useState<Panel>();
   const [switchTarget, setSwitchTarget] = useState('');
   const [pdfDraft, setPdfDraft] = useState<PrintDraft>();
@@ -166,22 +169,27 @@ export function App() {
   const card = project?.cards.find(item => item.id === active) ?? project?.cards[0];
   const sharedFrame = project ? projectFrame(project) : undefined;
   const usesSharedFrame = !!sharedFrame && !!card?.source.editable;
-  const renderedCard = useMemo(() => card && project ? withProjectFrame(card, project) : undefined, [card, project]);
+  const frameResolver = useMemo(() => project && projectFrameResolver(project), [project]);
+  const renderedCard = useMemo(() => card && frameResolver ? frameResolver.resolve(card) : undefined, [card, frameResolver]);
+  const mirror = card && frameMirrorFor(card, back);
+  const mirrorSource = card && mirror && frameResolver ? frameResolver.sourceSide(card, back, mirror) : undefined;
   const forEditing = (item: Card) => {
     const side = cardSide(item, back);
     return side.source.editable ? side : { ...side, source: editableSource(side.source) };
   };
   const selectedCard = card ? forEditing(card) : undefined;
-  const cardSet = selectedCard?.frame.kind === 'color-set' ? selectedCard.frame.set : undefined;
+  const cardSet = !mirror && selectedCard?.frame.kind === 'color-set' ? selectedCard.frame.set : undefined;
   const selectedRendered = renderedCard ? forEditing(renderedCard) : undefined;
   const selectedFrame = selectedRendered?.frame;
   const canCopyFrame = selectedFrame?.kind === 'custom' || selectedFrame?.kind === 'color-set' || selectedFrame?.kind === 'template';
   const needsDownload = (item: Card) => !!project && needsImages(item) && !attemptedImages.current.has(imageKey(project.id, item));
-  const nextImageCard = renderedCard && needsDownload(renderedCard) ? renderedCard
-    : project && sharedFrame ? projectCards(project).find(needsDownload) : undefined;
+  const nextImageCard = [selectedRendered, renderedCard].find(item => item && needsDownload(item))
+    ?? project?.cards.filter(item => sharedFrame || item.frameMirror || item.backSide?.frameMirror)
+      .map(item => frameResolver!.resolve(item))
+      .flatMap(item => item.source.images.back && item.source.editable ? [item, cardSide(item, true)] : [item]).find(needsDownload);
   const loadingImages = !!nextImageCard || imageLoads.size > 0;
   const editedCustom = panel === 'templates' && editorTab === 'custom' && project
-    ? editableCustomFrame(project, customFrameId, selectedCard) : undefined;
+    ? editableCustomFrame(project, customFrameId, mirror ? undefined : selectedCard) : undefined;
   const editedAppearance = panel === 'templates' && project
     ? editorTab === 'custom' ? editedCustom ? frameAppearance(editedCustom) : customFrameAppearance(defaultZones)
       : projectTemplate(project, editorTab, card)
@@ -293,10 +301,11 @@ export function App() {
   function commit(change: (project: Project) => Project, group = false) {
     if (!live.current) return;
     const previous = live.current;
+    const next = change(previous);
+    if (next === previous) return;
     const time = Date.now();
     if (!group || time - lastHistory.current > 800) setHistory(list => [...list.slice(-39), previous]);
     lastHistory.current = group ? time : 0;
-    const next = change(previous);
     live.current = next;
     setProject(next);
     persist(next);
@@ -316,17 +325,32 @@ export function App() {
   }
 
   function update(id: string, patch: Partial<Card>, group = false) {
-    commit(value => ({ ...value, cards: value.cards.map(item => item.id === id ? { ...item, ...patch } : item) }), group);
+    commit(value => clearInvalidFrameMirrors({ ...value, cards: value.cards.map(item => item.id === id ? { ...item, ...patch } : item) }), group);
   }
 
   function updateSide(id: string, patch: Partial<Card>, group = false) {
-    if (!back) {
-      commit(value => ({ ...value, cards: value.cards.map(item => item.id === id
-        ? { ...item, ...patch, source: patch.source ?? editableSource(item.source) } : item) }), group);
-      return;
-    }
-    commit(value => ({ ...value, cards: value.cards.map(item => item.id === id
-      ? { ...item, backSide: sideState({ ...cardSide(item, true), ...patch }) } : item) }), group);
+    commit(value => ({ ...value, cards: value.cards.map(item => {
+      if (item.id !== id) return item;
+      const side = cardSide(item, back);
+      const updated = { ...side, ...patch, ...(side.frameMirror && sideFrameSettings(side)) };
+      return back ? { ...item, backSide: sideState(updated) }
+        : { ...updated, source: patch.source ?? editableSource(item.source) };
+    }) }), group);
+  }
+
+  function changeFrameMirror(value: string) {
+    if (!card) return;
+    commit(current => {
+      const item = current.cards.find(item => item.id === card.id);
+      if (!item) return current;
+      const next = value ? projectFrameResolver(current).mirrorOptions(item, back)
+        .find(option => mirrorValue(option.cardId, option.back) === value) : undefined;
+      if (value && !next || !value && !frameMirrorFor(item, back)) return current;
+      const updated = back ? { ...item, backSide: sideState({ ...cardSide(item, true), frameMirror: next }) }
+        : { ...item, frameMirror: next };
+      return { ...current, cards: current.cards.map(entry => entry.id === item.id ? updated : entry) };
+    });
+    setZone(undefined);
   }
 
   function activate(id: string) {
@@ -482,7 +506,7 @@ export function App() {
         const previous = key === 'name' ? card.source.details?.printedName ?? card.source.name : card.source[key];
         if (card.fields[key] === previous) fields[key] = key === 'name' ? source.details?.printedName ?? source.name : source[key];
       }
-      const frame = frameOnly || card.frame.kind === 'printing'
+      const frame = !card.frameMirror && (frameOnly || card.frame.kind === 'printing')
         ? (source.printingId === card.source.printingId && card.frame.kind === 'printing' ? card.frame : { kind: 'printing' as const })
         : card.frame;
       const changed = source.printingId !== card.source.printingId;
@@ -527,14 +551,14 @@ export function App() {
   }
 
   function saveColorSet(set: FrameSet, applyTo: Card[] = [], group = false) {
-    const selected = new Set(applyTo.filter(card => card.source.editable).map(card => card.id));
+    const selected = new Set(applyTo.filter(card => card.source.editable && !card.frameMirror).map(card => card.id));
     commit(value => {
       const sets = value.frameSets ?? [];
       const frameSets = sets.some(item => item.id === set.id) ? sets.map(item => item.id === set.id ? set : item)
         : sets.length < 200 ? [...sets, set] : sets;
       return { ...value, frameSets, cards: value.cards.map(item => {
-        const replaceFront = selected.has(item.id) || (item.frame.kind === 'color-set' && item.frame.set.id === set.id);
-        const replaceBack = item.backSide?.frame.kind === 'color-set' && item.backSide.frame.set.id === set.id;
+        const replaceFront = !item.frameMirror && (selected.has(item.id) || (item.frame.kind === 'color-set' && item.frame.set.id === set.id));
+        const replaceBack = !item.backSide?.frameMirror && item.backSide?.frame.kind === 'color-set' && item.backSide.frame.set.id === set.id;
         if (!replaceFront && !replaceBack) return item;
         const frame = { kind: 'color-set' as const, set };
         return { ...item, frame: replaceFront ? frame : item.frame,
@@ -545,7 +569,7 @@ export function App() {
 
   function manageFrameSets() {
     const frame = project?.frame;
-    const set = (back ? selectedRendered : renderedCard)?.frame;
+    const set = mirror ? undefined : selectedRendered?.frame;
     const selection = frame?.kind === 'custom' ? 'project'
       : frame?.kind === 'preset' ? 'preset/' + frame.id
       : frame?.kind === 'color-set' ? frame.id
@@ -577,7 +601,7 @@ export function App() {
       return;
     }
     const current = value.cards.find(item => item.id === card?.id);
-    const frame = editableCustomFrame(value, customFrameId, current ? cardSide(current, back) : undefined);
+    const frame = editableCustomFrame(value, customFrameId, current && !frameMirrorFor(current, back) ? cardSide(current, back) : undefined);
     if (!frame) return;
     const appearance = update(frameAppearance(frame));
     if (frame.kind === 'color-set') saveColorSet({ ...frame.set, appearance }, [], true);
@@ -598,7 +622,7 @@ export function App() {
   }
 
   function changeZone(rect: Rect) {
-    if (!selectedRendered || !zone) return;
+    if (!selectedRendered || !zone || mirror) return;
     if (selectedRendered.frame.kind === 'printing' && zone === 'art') {
       updateSide(selectedRendered.id, { frame: { ...selectedRendered.frame, artZone: rect } }, true);
     } else if (selectedRendered.frame.kind !== 'printing') {
@@ -653,15 +677,29 @@ export function App() {
   if (!project) return <div className="initial" role="status">{t('openingApp')}</div>;
   const total = project.cards.reduce((sum, item) => sum + item.count, 0);
   const selection = project.cards.filter(item => selected.has(item.id));
+  const scopeOptions = { currentId: card?.id, selectedIds: selection.map(item => item.id) };
   const visibleCards = project.cards.filter(item => (modificationFilter === 'all' || isCardModified(item) === (modificationFilter === 'modified')) && matchesCardSearch(item, listQuery, locale, t('untitledCard')));
   const visibleSelection = visibleCards.filter(item => selected.has(item.id));
   const hiddenSelectionCount = selection.length - visibleSelection.length;
   const allVisibleSelected = visibleCards.length > 0 && visibleSelection.length === visibleCards.length;
   const batchCards = selection.length ? selection : project.cards;
   const sharedArt = cardsWithSharedArt(project.cards);
-  const loadingImage = !!renderedCard && (imageLoads.has(imageKey(project.id, renderedCard)) || needsDownload(renderedCard));
+  const loadingImage = !!selectedRendered && (imageLoads.has(imageKey(project.id, selectedRendered)) || needsDownload(selectedRendered));
   const missingArtwork = !!selectedRendered?.source.printingId && usesArt(selectedRendered)
     && !(selectedRendered.art || selectedRendered.source.images.art) && !selectedRendered.hiddenZones?.includes('art');
+  const mirrorOptions = card && frameResolver ? frameResolver.mirrorOptions(card, back) : [];
+  if (mirror && mirrorSource?.frame.kind === 'printing') mirrorOptions.push(mirror);
+  const mirrorChoices = new Map(project.cards.map((item, index) => [item.id, { item, number: index + 1 }]));
+  const mirrorLabels = mirrorOptions.map(option => {
+    const value = mirrorValue(option.cardId, option.back);
+    const { item, number } = mirrorChoices.get(option.cardId)!;
+    const side = cardSide(item, option.back);
+    const name = side.fields.name || t('untitledCard');
+    const edition = side.source.set ? `${side.source.set.toUpperCase()} ${side.source.number}` : '';
+    return { value, label: [name, edition, item.source.images.back ? t(option.back ? 'back' : 'front') : ''].filter(Boolean).join(' · '), number };
+  });
+  const mirrorLabelCounts = new Map<string, number>();
+  for (const { label } of mirrorLabels) mirrorLabelCounts.set(label, (mirrorLabelCounts.get(label) ?? 0) + 1);
   const deckAddActions = <>
     <button className="icon-label" onClick={() => { setError(''); setDeckErrors([]); setDeckImported(0); setPanel('deck'); }} aria-label={t('importList')} disabled={busy}><Icon name="import" /><span>{t('importList')}</span></button>
     <button className="icon-label" onClick={() => addCards([createCard({ ...blankCard, name: t('untitledCard') })], !card)} aria-label={t('addBlankCard')} disabled={busy || project.cards.length >= 1500}><Icon name="add" /><span>{t('blankCard')}</span></button>
@@ -788,7 +826,7 @@ export function App() {
                 aria-describedby={hiddenSelectionCount ? 'selection-removal-scope' : undefined}
                 title={t(hiddenSelectionCount ? 'removeVisibleSelection' : 'removeSelected')} disabled={!visibleSelection.length || busy} onClick={() => {
                   const removed = new Set(visibleSelection.map(item => item.id));
-                  commit(value => ({ ...value, cards: value.cards.filter(item => !removed.has(item.id)) }));
+                  commit(value => clearInvalidFrameMirrors({ ...value, cards: value.cards.filter(item => !removed.has(item.id)) }));
                   setSelected(previous => new Set([...previous].filter(id => !removed.has(id))));
                   setZone(undefined); setBack(false);
                   if (project.cards.length > removed.size) listSearchRef.current?.focus();
@@ -854,17 +892,20 @@ export function App() {
             }}><Icon name="export" />{t(exportRepair === 'sheet' ? 'returnToPdfSetup' : 'returnToZipSetup')}</button>}
           </div>
           <div className={`stage-sheet${compare && card.source.printingId ? ' is-comparing' : ''}`}>
-            {card.source.printingId && <button className="icon-button compare-button" aria-label={t('compareOriginal')} title={t('compareOriginal')} aria-pressed={compare} onClick={() => {
-              const next = !compare;
-              setCompare(next);
-            }}><Icon name="compare" /></button>}
+            <div className="stage-preview-actions">
+              <PreviewGuidesButton visible={showPreviewGuides} toggle={togglePreviewGuides} />
+              {card.source.printingId && <button className="icon-button compare-button" aria-label={t('compareOriginal')} title={t('compareOriginal')} aria-pressed={compare} onClick={() => {
+                const next = !compare;
+                setCompare(next);
+              }}><Icon name="compare" /></button>}
+            </div>
             <div className="stage-current">
             {missingArtwork && loadingImage ? (
               <p className="missing-printing" role="status">{t('loadingArt')}</p>
-            ) : !usesArt(renderedCard) && !card.source.images.front ? <div className="missing-printing">
+            ) : selectedRendered && !usesArt(selectedRendered) && !selectedRendered.source.images.front ? <div className="missing-printing">
               <p role="status">{loadingImage ? t('loadingScan') : card.source.images.error ?? t('scanUnavailable')}</p>
-              {!loadingImage && <button onClick={() => void loadPrintingImages(renderedCard)}>{t('retryLoading')}</button>}
-            </div> : <Preview card={selectedRendered!} showThirds zone={zone} onZone={changeZone}
+              {!loadingImage && <button onClick={() => void loadPrintingImages(selectedRendered)}>{t('retryLoading')}</button>}
+            </div> : <Preview card={selectedRendered!} showThirds={showPreviewGuides} zone={mirror ? undefined : zone} onZone={mirror ? undefined : changeZone}
               hideArtworkWarning={missingArtwork}
               onCrop={selectedCard?.source.editable && (selectedRendered?.frame.kind !== 'printing' || !!selectedCard.art) ? crop => updateSide(card.id, { crop }, true) : undefined} />}
             </div>
@@ -878,7 +919,7 @@ export function App() {
           </div>
           {missingArtwork && !loadingImage && <div className="artwork-recovery">
             <p className="muted" role="status">{t('catalogArtworkUnavailable')}</p>
-            <button disabled={busy} onClick={() => void loadPrintingImages(renderedCard)}>{t('retryArtworkDownload')}</button>
+            <button disabled={busy} onClick={() => void loadPrintingImages(selectedRendered!)}>{t('retryArtworkDownload')}</button>
           </div>}
           {selectedCard?.source.editable && <button className={`image-dropzone${draggingImage ? ' dragging' : ''}`} disabled={busy} onClick={() => void selectAssets(false).then(image => {
             if (image) updateSide(card.id, { art: image.id, crop: defaultCrop,
@@ -901,24 +942,31 @@ export function App() {
       </main>
       {card && selectedCard && selectedRendered ? <Inspector key={`${card.id}/${back}`} card={selectedCard} renderedCard={selectedRendered} back={back} sharedFrame={usesSharedFrame} presets={project.presets} frameSets={project.frameSets ?? []}
         editCustomFrame={manageFrameSets}
+        mirror={card.source.editable ? {
+          value: mirror ? mirrorValue(mirror.cardId, mirror.back) : '',
+          suspended: mirrorSource?.frame.kind === 'printing',
+          options: mirrorLabels.map(({ value, label, number }) => ({ value, label: mirrorLabelCounts.get(label)! > 1 ? `${label} (#${number})` : label })),
+          change: changeFrameMirror
+        } : undefined}
         copyFrame={canCopyFrame ? () => {
           const { frame, zoneOverrides, hiddenZones, dividerOverrides } = selectedRendered;
           setCopiedFrame(structuredClone({ frame, settings: { zoneOverrides, hiddenZones, dividerOverrides } }));
           setNotice({ key: 'frameCopied' });
         } : undefined}
-        pasteFrame={copiedFrame ? () => {
+        pasteFrame={copiedFrame && !mirror ? () => {
           const { frame, settings } = copiedFrame;
           updateSide(card.id, usesSharedFrame ? settings : { frame, ...settings });
           setZone(undefined);
           setNotice({ key: usesSharedFrame ? 'frameSettingsPasted' : 'framePasted' });
         } : undefined}
         resetCard={() => {
+          if (mirror) return;
           if (back) update(card.id, { backSide: undefined });
           else commit(value => ({ ...value, cards: value.cards.map(item => item.id === card.id ? { ...createCard(item.source, item.count), id: item.id, backSide: item.backSide } : item) }));
           setZone(undefined);
         }}
         update={patch => updateSide(card.id, patch, true)}
-        selectAssets={selectAssets} choosePrinting={() => choosePrinting('printings')} zone={zone} selectZone={setZone}
+        selectAssets={selectAssets} choosePrinting={() => choosePrinting('printings')} zone={mirror ? undefined : zone} selectZone={setZone}
         fullArtBase={project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase}
         savePreset={name => {
           if (selectedCard.frame.kind !== 'custom') return;
@@ -952,6 +1000,7 @@ export function App() {
         </div>
       </>}
       {panel === 'templates' && editedAppearance && <TemplateEditor tab={editorTab} selectTab={selectEditorTab}
+        showPreviewGuides={showPreviewGuides} togglePreviewGuides={togglePreviewGuides}
         appearance={editedAppearance} activeCard={renderedCard} cards={projectCards(project)} fonts={systemFonts} change={changeTemplate}
         customFrame={editedCustom} reset={resetEditedFrame}
         customControls={editorTab === 'custom' && <>
@@ -964,13 +1013,13 @@ export function App() {
             {cardSet && !project.frameSets?.some(set => set.id === cardSet.id)
               && <option value={cardSet.id}>{cardSet.name}</option>}
             {project.frame?.kind === 'custom' && <option value="project">{t('projectCustomFrame')}</option>}
-            {selectedCard?.frame.kind === 'custom' && <option value="card">{t('existingPngFrame')}</option>}
+            {!mirror && selectedCard?.frame.kind === 'custom' && <option value="card">{t('existingPngFrame')}</option>}
             {project.presets.map(preset => <option key={preset.id} value={'preset/' + preset.id}>{preset.name}</option>)}
           </Select></label>
           {editedCustom?.kind === 'custom'
             ? <img className="single-frame-thumbnail" src={assetURL(editedCustom.asset)} alt={t('pngLoaded')} />
             : <FrameSets key={customFrameId} sets={project.frameSets ?? []} existing={editedCustom?.set}
-              count={sharedFrame ? 0 : batchCards.filter(item => item.source.editable).length} save={(set, apply) => {
+              count={sharedFrame ? 0 : batchCards.filter(item => item.source.editable && !item.frameMirror).length} save={(set, apply) => {
                 if (live.current?.id !== project.id) return;
                 saveColorSet(set, apply ? batchCards : []);
                 setZone(undefined);
@@ -1005,11 +1054,11 @@ export function App() {
         setNotice({ key: updates.length === 1 ? 'changedCardsOne' : 'changedCards', count: updates.length }); setPanel(undefined);
       }} />}
       {panel === 'print' && <PrintChoices cards={projectCards(project, project.cards.slice(0, 9))} choose={setPanel} />}
-      {panel === 'cards' && <CardExportPanel project={project} initialDraft={zipDraft} onBusy={setBusy} onOpenCard={(id, back, draft) => {
+      {panel === 'cards' && <CardExportPanel project={project} scopeOptions={scopeOptions} initialDraft={zipDraft} onBusy={setBusy} onOpenCard={(id, back, draft) => {
         setZipDraft(draft);
         openCardForExport('cards', id, back);
       }} onExport={() => finishExport('zipSaved')} />}
-      {panel === 'sheet' && <PrintPanel project={project} initialDraft={pdfDraft} onBusy={setBusy} onOpenCard={(id, back, draft) => {
+      {panel === 'sheet' && <PrintPanel project={project} scopeOptions={scopeOptions} initialDraft={pdfDraft} onBusy={setBusy} onOpenCard={(id, back, draft) => {
         setPdfDraft(draft);
         openCardForExport('sheet', id, back);
       }} onExport={() => finishExport('pdfSaved')} />}

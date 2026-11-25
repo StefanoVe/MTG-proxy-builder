@@ -99,7 +99,7 @@ function EditionDetails({ card }: { card: Card }) {
   </div>;
 }
 
-export function Inspector({ card, renderedCard, back, sharedFrame, presets, update, resetCard, selectAssets, choosePrinting, zone, selectZone, savePreset, fullArtBase, frameSets, editCustomFrame, copyFrame, pasteFrame }: {
+export function Inspector({ card, renderedCard, back, sharedFrame, presets, update, resetCard, selectAssets, choosePrinting, zone, selectZone, savePreset, fullArtBase, frameSets, editCustomFrame, copyFrame, pasteFrame, mirror }: {
   card: Card; renderedCard: Card; back: boolean; sharedFrame: boolean; presets: Preset[]; update: (patch: Partial<Card>) => void;
   resetCard: () => void;
   selectAssets: (frame: boolean) => Promise<Asset | undefined>;
@@ -107,6 +107,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
   savePreset: (name: string) => void;
   frameSets: FrameSet[]; editCustomFrame: () => void;
   copyFrame?: () => void; pasteFrame?: () => void;
+  mirror?: { value: string; suspended: boolean; options: { value: string; label: string }[]; change: (value: string) => void };
   fullArtBase?: TemplateAppearance;
 }) {
   const { t, locale } = useI18n();
@@ -117,14 +118,15 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
   const custom = card.frame.kind === 'custom' ? card.frame : undefined;
   const colorSet = renderedCard.frame.kind === 'color-set' ? renderedCard.frame.set : undefined;
   const original = renderedCard.frame.kind === 'printing';
+  const mirrored = !!mirror?.value;
   const appearance = frameAppearance(renderedCard.frame);
   const editableFrameZone = !original;
-  const visibleFields = original ? printingFields(card.source) : card.fields;
+  const visibleFields = original && !mirrored ? printingFields(card.source) : card.fields;
   const art = original ? !!card.art : !!(card.art ?? card.source.images.art);
   function setField(field: keyof Card['fields'], value: string) {
     if (value === visibleFields[field]) return;
     const fields = { ...visibleFields, [field]: value };
-    if (card.frame.kind === 'printing') {
+    if (!mirrored && card.frame.kind === 'printing') {
       update({ fields, frame: newTemplate('full-art', fullArtBase) });
       if (original) selectZone(undefined);
     } else {
@@ -171,7 +173,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
   </aside>;
 
   return <aside id="workspace-properties" className="inspector">
-    <div className="panel-title"><h2>{t('properties')}</h2><button className="icon-button" aria-label={t('resetCard')} title={t('resetCard')} disabled={!isCardModified(card)} onClick={resetCard}><Icon name="reset" /></button></div>
+    <div className="panel-title"><h2>{t('properties')}</h2><button className="icon-button" aria-label={t('resetCard')} title={t('resetCard')} disabled={mirrored || !isCardModified(card)} onClick={resetCard}><Icon name="reset" /></button></div>
     <div className="tabs" role="group" aria-label={t('cardProperties')}>
       {(['card', 'art', 'frame'] as const).map(item => <button key={item} aria-pressed={item === tab}
         onClick={() => { setTab(item); if (item !== 'frame') selectZone(undefined); }}>
@@ -179,18 +181,19 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
       </button>)}
     </div>
     <div className="fields">
+      {mirrored && mirror.suspended && <p className="error" role="status">{t('frameMirrorSuspended')}</p>}
       {tab === 'card' && <>
         <SectionTitle icon="card">{t('card')}</SectionTitle>
         {card.source.printingId && <section className="source">
           <span><strong>{card.source.setName}</strong><small>{card.source.set.toUpperCase()} · {card.source.number}</small></span>
           <ToolButton icon="edition" label={t('printings')} onClick={choosePrinting} />
         </section>}
-        {original && <p className="muted">{t('printingEditHelp')}</p>}
+        {original && !mirrored && <p className="muted">{t('printingEditHelp')}</p>}
         <label><FieldLabel icon="card">{t('name')}</FieldLabel><input value={visibleFields.name} maxLength={300} onChange={event => setField('name', event.target.value)} /></label>
         <label><FieldLabel icon="mana">{t('manaCost')}</FieldLabel><input value={visibleFields.mana} maxLength={100} placeholder="{1}{U}" onChange={event => setField('mana', event.target.value)} /></label>
         <label><FieldLabel icon="type">{t('type')}</FieldLabel><input value={visibleFields.type} maxLength={300} placeholder={t('instant')} onChange={event => setField('type', event.target.value)} /></label>
         <label><FieldLabel icon="text">{t('cardText')}</FieldLabel><textarea value={visibleFields.rules} maxLength={12000} rows={6} onChange={event => setField('rules', event.target.value)} /></label>
-        <div className="template-control-grid">
+        {!mirrored && <div className="template-control-grid">
           <label>{t('textToAlign')}<Select value={textArea} onChange={event => setTextArea(event.target.value as FrameTextArea)}>
             {frameTextAreas.map(area => <option key={area} value={area}>{t(textAreaLabels[area])}</option>)}
           </Select></label>
@@ -199,7 +202,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
             <option value="">{t('inheritFrameAlignment')}</option>
             <option value="left">{t('left')}</option><option value="center">{t('center')}</option><option value="right">{t('right')}</option>
           </Select></label>
-        </div>
+        </div>}
         {(/\b(planeswalker)\b/i.test(visibleFields.type) || visibleFields.loyalty) ?
           <label><FieldLabel icon="stats">{t('loyalty')}</FieldLabel><input value={visibleFields.loyalty} maxLength={12} onChange={event => setField('loyalty', event.target.value)} /></label>
           : (/\b(battle|battaglia)\b/i.test(visibleFields.type) || visibleFields.defense) ?
@@ -223,7 +226,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
           <label>{t('verticalPosition')}<input type="range" min="-1" max="1" step=".01" value={card.crop.y} onChange={event => update({ crop: { ...card.crop, y: Number(event.target.value) } })} /></label>
           <ToolButton icon="reset" label={t('resetCrop')} onClick={() => update({ crop: defaultCrop })} />
         </>}
-        {editableFrameZone && <>
+        {!mirrored && editableFrameZone && <>
           <SectionTitle icon="zone">{t('artArea')}</SectionTitle>
           <div className="inspector-actions">
             <ToolButton icon="zone" label={zone === 'art' ? t('hideArtArea') : t('showArtArea')} caption={zone === 'art' ? t('hideArea') : t('editArea')} pressed={zone === 'art'} onClick={() => selectZone(zone === 'art' ? undefined : 'art')} />
@@ -233,7 +236,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
             <ZoneFields rect={cardZones(renderedCard).art} update={changeArtZone} />
           </>}
         </>}
-        {original && card.art && <>
+        {!mirrored && original && card.art && <>
           <ToolButton icon="zone" label={t('adjustArtArea')} caption={t('adjustArea')} pressed={zone === 'art'} onClick={() => void toggleArtZone()} />
           {zone === 'art' && <>
             <p className="muted">{t('resizeGuideHelp')}</p>
@@ -256,6 +259,13 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
             <button type="button" className="icon-button" aria-label={pasteLabel} title={pasteLabel} disabled={!pasteFrame} onClick={pasteFrame}><Icon name="paste" /></button>
           </div>
         </div>
+        {mirror && <label>{t('followFrame')}<Select value={mirror.value} disabled={!mirror.value && !mirror.options.length}
+          onChange={event => mirror.change(event.target.value)}>
+          <option value="">{t('noFrameSource')}</option>
+          {mirror.options.map(({ value, label }) => <option value={value} key={value}>{label}</option>)}
+        </Select></label>}
+        {mirrored && !mirror.suspended && <p className="muted">{t('frameMirrorLocked')}</p>}
+        {!mirrored && <>
         {sharedFrame ? <p className="muted">{t(back ? 'projectFrameAppliedBack' : 'projectFrameApplied')}</p> : <label>{t('template')}<Select value={colorSet?.id ?? (card.frame.kind === 'template' ? card.frame.template : card.frame.kind)} onChange={event => {
           const value = event.target.value;
           if (isTemplate(value)) update({ frame: newTemplate(value, fullArtBase) });
@@ -328,6 +338,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
             <label>{t('presetName')}<input value={presetName} maxLength={100} onChange={event => setPresetName(event.target.value)} /></label>
             <button className="icon-label" disabled={!presetName.trim()}><Icon name="save" /><span>{t('savePreset')}</span></button>
           </form>
+        </>}
         </>}
       </>}
     </div>

@@ -10,9 +10,12 @@ import { sideOrientation } from '../shared/model.js';
 import type { Bleed, BleedFill, ImageFormat } from './card-images.js';
 import type { CardArchiveFaceError } from './card-archive.js';
 import { compose } from './compose.js';
+import { allCardsScope, cardsInScope, ExportScope } from './ExportScope.js';
+import type { Scope, ScopeOptions } from './ExportScope.js';
 
 type Geometry = ReturnType<typeof imageGeometry>;
 export type CardExportDraft = {
+  scope: Scope;
   bleed: Bleed;
   customMm: string;
   fill: BleedFill;
@@ -83,8 +86,9 @@ function CardThumbnail({ card, back, geometry, fill, color, guides, copies }: {
   </figure>;
 }
 
-export function CardExportPanel({ project, initialDraft, onBusy, onExport, onOpenCard }: {
+export function CardExportPanel({ project, scopeOptions, initialDraft, onBusy, onExport, onOpenCard }: {
   project: Project;
+  scopeOptions: ScopeOptions;
   initialDraft?: CardExportDraft;
   onBusy: (busy: boolean) => void;
   onExport: () => void;
@@ -92,10 +96,10 @@ export function CardExportPanel({ project, initialDraft, onBusy, onExport, onOpe
 }) {
   const { t, locale } = useI18n();
   const [draft, setDraft] = useState<CardExportDraft>(initialDraft ?? {
-    bleed: 'none', customMm: '3', fill: 'mirror', color: '#000000', dpi: 300,
+    scope: allCardsScope, bleed: 'none', customMm: '3', fill: 'mirror', color: '#000000', dpi: 300,
     format: 'png', quality: 95, backs: true, copies: false, guides: true
   });
-  const { bleed, customMm, fill, color, dpi, format, quality, backs, copies, guides } = draft;
+  const { scope, bleed, customMm, fill, color, dpi, format, quality, backs, copies, guides } = draft;
   const [progress, setProgress] = useState<number | null>(null);
   const [failure, setFailure] = useState<{ message: string; face?: CardArchiveFaceError }>();
   const issue = failure?.face;
@@ -109,9 +113,10 @@ export function CardExportPanel({ project, initialDraft, onBusy, onExport, onOpe
     const margin = Math.round(geometry.margin * width / geometry.width);
     return { width, height, margin, totalWidth: width + 2 * margin, totalHeight: height + 2 * margin };
   }, [geometry]);
-  const faces = useMemo(() => imageFaces(projectCards(project), backs), [project, backs]);
+  const scopedCards = useMemo(() => cardsInScope(project.cards, scope), [project.cards, scope]);
+  const faces = useMemo(() => scopedCards ? imageFaces(projectCards(project, scopedCards), backs) : [], [project, scopedCards, backs]);
   const total = faces.reduce((sum, { card }) => sum + (copies ? card.count : 1), 0);
-  const hasBacks = project.cards.some(card => !!card.source.images.back);
+  const hasBacks = scopedCards?.some(card => !!card.source.images.back) ?? false;
 
   async function exportCards() {
     onBusy(true);
@@ -147,6 +152,8 @@ export function CardExportPanel({ project, initialDraft, onBusy, onExport, onOpe
     <div className="card-export">
       <div className="card-export-options">
         <fieldset disabled={working} className="print-options">
+          <ExportScope scope={scope} options={scopeOptions} count={project.cards.length} invalid={!scopedCards} disabled={working}
+            onChange={scope => { setDraft({ ...draft, scope }); setFailure(undefined); }} />
           <label>{t('bleed')}<Select value={bleed} onChange={event => setDraft({ ...draft, bleed: event.target.value as Bleed })}>
             <option value="none">{t('none')}</option>
             <option value="mpc">MakePlayingCards · 63 × 88 mm</option>

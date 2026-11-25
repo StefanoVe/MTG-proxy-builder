@@ -1,5 +1,5 @@
-import type { Card, FrameTextArea, Preset, Project, Template, TemplateAppearance, Zones } from './model.js';
-import { cardSide, sideState } from './model.ts';
+import type { Card, FrameMirror, FrameTextArea, Preset, Project, Template, TemplateAppearance, Zones } from './model.js';
+import { cardSide, sideFrameSettings, sideState } from './model.ts';
 
 const templateZones: Record<Template, Zones> = {
   'full-art': {
@@ -67,14 +67,78 @@ export function projectFrame(project: Project): Card['frame'] | undefined {
   return frame;
 }
 
-export function withProjectFrame(card: Card, project: Project, frame = projectFrame(project)): Card {
+export function frameMirrorFor(card: Card, back: boolean) {
+  return back ? card.backSide?.frameMirror : card.frameMirror;
+}
+
+function canMirrorSide(card: Card, back: boolean) {
+  return card.source.editable && (!back || !!card.source.images.back);
+}
+
+function mirrorSource(cards: ReadonlyMap<string, Card>, card: Card, back: boolean, mirror: FrameMirror) {
+  const source = cards.get(mirror.cardId);
+  if (!source || source.id === card.id || !canMirrorSide(card, back) || !canMirrorSide(source, mirror.back)
+    || frameMirrorFor(source, mirror.back)) return;
+  return source;
+}
+
+export function clearInvalidFrameMirrors(project: Project): Project {
+  const cards = new Map(project.cards.map(card => [card.id, card]));
+  const updated = project.cards.map(card => {
+    const front = card.frameMirror;
+    const rear = card.backSide?.frameMirror;
+    const clearFront = front && !mirrorSource(cards, card, false, front);
+    const clearBack = rear && !mirrorSource(cards, card, true, rear);
+    if (!clearFront && !clearBack) return card;
+    return { ...card, frameMirror: clearFront ? undefined : front,
+      backSide: clearBack && card.backSide ? { ...card.backSide, frameMirror: undefined } : card.backSide };
+  });
+  return updated.some((card, index) => card !== project.cards[index]) ? { ...project, cards: updated } : project;
+}
+
+export function projectFrameResolver(project: Project, frame = projectFrame(project)) {
+  const cards = new Map(project.cards.map(card => [card.id, card]));
   const apply = (side: Card) => withProjectTemplate(frame && side.source.editable ? { ...side, frame } : side, project.templateAppearances);
-  const front = apply(card);
-  if (!card.source.images.back || !card.source.editable) return front;
-  return { ...front, backSide: sideState(apply(cardSide(card, true))) };
+
+  function sourceSide(card: Card, back: boolean, mirror: FrameMirror) {
+    const source = mirrorSource(cards, card, back, mirror);
+    return source && apply(cardSide(source, mirror.back));
+  }
+
+  function mirrorOptions(card: Card, back: boolean): FrameMirror[] {
+    if (!canMirrorSide(card, back)) return [];
+    const isSource = project.cards.some(child => [false, true].some(rear => {
+      const mirror = frameMirrorFor(child, rear);
+      return mirror?.cardId === card.id && mirror.back === back;
+    }));
+    if (isSource) return [];
+    return project.cards.flatMap(source => [false, true].flatMap(rear => {
+      const mirror = { cardId: source.id, back: rear };
+      const side = sourceSide(card, back, mirror);
+      return side && side.frame.kind !== 'printing' ? [mirror] : [];
+    }));
+  }
+
+  function resolveSide(card: Card, back: boolean) {
+    const local = apply(cardSide(card, back));
+    const mirror = local.frameMirror;
+    const source = mirror && sourceSide(card, back, mirror);
+    return source && source.frame.kind !== 'printing' ? { ...local, ...sideFrameSettings(source) } : local;
+  }
+
+  function resolve(card: Card): Card {
+    const front = resolveSide(card, false);
+    if (!canMirrorSide(card, true)) return front;
+    return { ...front, backSide: sideState(resolveSide(card, true)) };
+  }
+
+  return { resolve, mirrorOptions, sourceSide };
+}
+
+export function withProjectFrame(card: Card, project: Project, frame = projectFrame(project)): Card {
+  return projectFrameResolver(project, frame).resolve(card);
 }
 
 export function projectCards(project: Project, cards = project.cards): Card[] {
-  const frame = projectFrame(project);
-  return cards.map(card => withProjectFrame(card, project, frame));
+  return cards.map(projectFrameResolver(project).resolve);
 }

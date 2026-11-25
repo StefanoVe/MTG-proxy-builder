@@ -128,6 +128,7 @@ const cardSideSchema = z.object({
   hiddenZones: z.array(z.enum(['art', 'title', 'type', 'rules', 'stats'])).optional(),
   dividerOverrides: z.object({ titleDivider: z.boolean().optional(), divider: z.boolean().optional() }).optional(),
   textAlignOverrides: z.partialRecord(z.enum(frameTextAreas), frameTextAlignSchema).optional(),
+  frameMirror: z.object({ cardId: uuid, back: z.boolean() }).optional(),
   crop: z.object({ x: z.number().min(-1).max(1), y: z.number().min(-1).max(1), zoom: z.number().min(1).max(5) }),
   frame: z.discriminatedUnion('kind', [builtInFrameSchema, z.object({ kind: z.literal('printing'), artZone: rect.optional() }), templateFrameSchema,
     z.object({ kind: z.literal('color-set'), set: frameSetSchema }), customFrameSchema])
@@ -150,6 +151,7 @@ export const assetSchema = z.object({ id: assetId, name: z.string(), width: z.nu
 
 export type CardData = z.infer<typeof cardDataSchema>;
 export type Card = z.infer<typeof cardSchema>;
+export type FrameMirror = NonNullable<Card['frameMirror']>;
 export type Preset = z.infer<typeof presetSchema>;
 export type Project = z.infer<typeof projectSchema>;
 export type Asset = z.infer<typeof assetSchema>;
@@ -198,11 +200,15 @@ export function printingFields(source: CardData): Card['fields'] {
   return { name: source.details?.printedName ?? name, mana, type, rules, artist, power, toughness, loyalty, defense };
 }
 
-export function createCard(source: CardData, count = 1): Card {
+function defaultSide(source: CardData): Pick<Card, 'fields' | 'frame' | 'crop'> {
   return {
-    id: crypto.randomUUID(), count, source, fields: printingFields(source),
+    fields: printingFields(source),
     frame: source.printingId ? { kind: 'printing' } : { kind: 'modern', tone: 'auto' }, crop: defaultCrop
   };
+}
+
+export function createCard(source: CardData, count = 1): Card {
+  return { id: crypto.randomUUID(), count, source, ...defaultSide(source) };
 }
 
 /** Present one physical side as an ordinary card to the editor and renderer. */
@@ -216,8 +222,8 @@ export function cardSide(card: Card, back: boolean): Card {
     editable: true, orientation: card.source.backOrientation ?? (/\b(battle|battaglia)\b/i.test(face?.type ?? '') ? 'landscape' as const : 'portrait' as const),
     backOrientation: undefined, images: { front: card.source.images.back, art: card.source.images.backArt },
     details: card.source.details ? { ...card.source.details, printedName: face?.name, faces: [] } : undefined };
-  const initial = createCard(source, card.count);
-  return { ...card, ...initial, textAlignOverrides: undefined, ...card.backSide, id: card.id, source, backSide: undefined };
+  return { ...card, ...defaultSide(source), textAlignOverrides: undefined, frameMirror: undefined,
+    ...card.backSide, source, backSide: undefined };
 }
 
 /** Orientation describes the readable face, independently of the physical sheet slot. */
@@ -231,8 +237,13 @@ export function sideOrientation(card: Card, back = false): 'portrait' | 'landsca
 }
 
 export function sideState(card: Card): NonNullable<Card['backSide']> {
-  const { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides, textAlignOverrides } = card;
-  return { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides, textAlignOverrides };
+  const { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides, textAlignOverrides, frameMirror } = card;
+  return { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides, textAlignOverrides, frameMirror };
+}
+
+export function sideFrameSettings(card: Card) {
+  const { frame, zoneOverrides, hiddenZones, dividerOverrides, textAlignOverrides } = card;
+  return { frame, zoneOverrides, hiddenZones, dividerOverrides, textAlignOverrides };
 }
 
 export function rebaseBackSide(card: Card, source: CardData): Card['backSide'] {
@@ -243,7 +254,7 @@ export function rebaseBackSide(card: Card, source: CardData): Card['backSide'] {
   for (const key of Object.keys(fields) as Array<keyof Card['fields']>) {
     if (fields[key] === oldDefault.fields[key]) fields[key] = newDefault.fields[key];
   }
-  const frame = card.backSide.frame.kind === 'printing' && card.source.printingId !== source.printingId
+  const frame = !card.backSide.frameMirror && card.backSide.frame.kind === 'printing' && card.source.printingId !== source.printingId
     ? { kind: 'printing' as const } : card.backSide.frame;
   return { ...card.backSide, fields, frame };
 }
@@ -254,7 +265,7 @@ export function isCardModified(card: Card): boolean {
   const defaultFrame = card.source.printingId
     ? frame.kind === 'printing' && !frame.artZone
     : frame.kind === 'modern' && frame.tone === 'auto';
-  if (!defaultFrame || card.art || crop.x !== defaultCrop.x || crop.y !== defaultCrop.y || crop.zoom !== defaultCrop.zoom
+  if (!defaultFrame || card.frameMirror || card.art || crop.x !== defaultCrop.x || crop.y !== defaultCrop.y || crop.zoom !== defaultCrop.zoom
     || (card.hiddenZones?.length ?? 0) > 0
     || Object.values(card.zoneOverrides ?? {}).some(value => value !== undefined)
     || Object.values(card.textAlignOverrides ?? {}).some(value => value !== undefined)
