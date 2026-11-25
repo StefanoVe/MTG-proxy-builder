@@ -15,6 +15,7 @@ import { Icon } from './Icon.js';
 import type { IconName } from './Icon.js';
 
 export const zoneLabels: Record<keyof Zones, MessageKey> = { art: 'art', title: 'header', type: 'type', rules: 'text', stats: 'stats' };
+export type FrameElement = keyof Zones | FrameTextArea;
 const textAreaLabels: Record<FrameTextArea, MessageKey> = {
   title: zoneLabels.title, type: zoneLabels.type, rules: 'cardText', stats: zoneLabels.stats, artist: 'artistCredit'
 };
@@ -103,7 +104,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
   card: Card; renderedCard: Card; back: boolean; sharedFrame: boolean; presets: Preset[]; update: (patch: Partial<Card>) => void;
   resetCard: () => void;
   selectAssets: (frame: boolean) => Promise<Asset | undefined>;
-  choosePrinting: () => void; zone: keyof Zones | undefined; selectZone: (zone: keyof Zones | undefined) => void;
+  choosePrinting: () => void; zone: FrameElement | undefined; selectZone: (zone: FrameElement | undefined) => void;
   savePreset: (name: string) => void;
   frameSets: FrameSet[]; editCustomFrame: () => void;
   copyFrame?: () => void; pasteFrame?: () => void;
@@ -112,12 +113,13 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
 }) {
   const { t, locale } = useI18n();
   const [tab, setTab] = useState<'card' | 'art' | 'frame'>('card');
-  const [textArea, setTextArea] = useState<FrameTextArea>('rules');
   const [presetName, setPresetName] = useState('');
   const pasteLabel = t(sharedFrame ? 'pasteFrameSettings' : 'pasteFrame');
   const custom = card.frame.kind === 'custom' ? card.frame : undefined;
   const colorSet = renderedCard.frame.kind === 'color-set' ? renderedCard.frame.set : undefined;
   const original = renderedCard.frame.kind === 'printing';
+  const textArea = zone === 'art' ? undefined : zone;
+  const layoutZone = original || zone === 'artist' ? undefined : zone;
   const mirrored = !!mirror?.value;
   const appearance = frameAppearance(renderedCard.frame);
   const editableFrameZone = !original;
@@ -137,15 +139,14 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
     update({ zoneOverrides: { ...card.zoneOverrides, art: rect } });
   }
 
-  function setTextAlign(align: FrameTextAlign | '') {
+  function setTextAlign(area: FrameTextArea, align: FrameTextAlign | '') {
     const overrides = { ...card.textAlignOverrides };
-    if (align) overrides[textArea] = align;
-    else delete overrides[textArea];
+    if (align) overrides[area] = align;
+    else delete overrides[area];
     update({
       textAlignOverrides: Object.keys(overrides).length ? overrides : undefined,
       ...(original && align ? { frame: newTemplate('full-art', fullArtBase) } : {})
     });
-    if (original && align) selectZone(undefined);
   }
 
   async function toggleArtZone() {
@@ -176,7 +177,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
     <div className="panel-title"><h2>{t('properties')}</h2><button className="icon-button" aria-label={t('resetCard')} title={t('resetCard')} disabled={mirrored || !isCardModified(card)} onClick={resetCard}><Icon name="reset" /></button></div>
     <div className="tabs" role="group" aria-label={t('cardProperties')}>
       {(['card', 'art', 'frame'] as const).map(item => <button key={item} aria-pressed={item === tab}
-        onClick={() => { setTab(item); if (item !== 'frame') selectZone(undefined); }}>
+        onClick={() => { setTab(item); if (item !== 'frame' || (original && zone === 'art')) selectZone(undefined); }}>
         {t(item)}
       </button>)}
     </div>
@@ -193,16 +194,6 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
         <label><FieldLabel icon="mana">{t('manaCost')}</FieldLabel><input value={visibleFields.mana} maxLength={100} placeholder="{1}{U}" onChange={event => setField('mana', event.target.value)} /></label>
         <label><FieldLabel icon="type">{t('type')}</FieldLabel><input value={visibleFields.type} maxLength={300} placeholder={t('instant')} onChange={event => setField('type', event.target.value)} /></label>
         <label><FieldLabel icon="text">{t('cardText')}</FieldLabel><textarea value={visibleFields.rules} maxLength={12000} rows={6} onChange={event => setField('rules', event.target.value)} /></label>
-        {!mirrored && <div className="template-control-grid">
-          <label>{t('textToAlign')}<Select value={textArea} onChange={event => setTextArea(event.target.value as FrameTextArea)}>
-            {frameTextAreas.map(area => <option key={area} value={area}>{t(textAreaLabels[area])}</option>)}
-          </Select></label>
-          <label>{t('horizontalAlignment')}<Select value={original ? '' : card.textAlignOverrides?.[textArea] ?? ''}
-            onChange={event => setTextAlign(event.target.value as FrameTextAlign | '')}>
-            <option value="">{t('inheritFrameAlignment')}</option>
-            <option value="left">{t('left')}</option><option value="center">{t('center')}</option><option value="right">{t('right')}</option>
-          </Select></label>
-        </div>}
         {(/\b(planeswalker)\b/i.test(visibleFields.type) || visibleFields.loyalty) ?
           <label><FieldLabel icon="stats">{t('loyalty')}</FieldLabel><input value={visibleFields.loyalty} maxLength={12} onChange={event => setField('loyalty', event.target.value)} /></label>
           : (/\b(battle|battaglia)\b/i.test(visibleFields.type) || visibleFields.defense) ?
@@ -296,29 +287,39 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
             <button className="icon-label" onClick={() => update({ dividerOverrides: undefined })}><Icon name="reset" />{' '}{t('resetDividers')}</button>}
         </fieldset>}
 
-        {!original && <>
-          <fieldset className="template-settings">
-            <legend>{t('visibleSections')}</legend>
-            {(Object.keys(zoneLabels) as Array<keyof Zones>).map(key => <label className="check" key={key}>
-              <input type="checkbox" checked={!card.hiddenZones?.includes(key)} onChange={event => update({
-                hiddenZones: event.target.checked ? (card.hiddenZones ?? []).filter(item => item !== key) : [...(card.hiddenZones ?? []), key]
-              })} />{t(zoneLabels[key])}
-            </label>)}
-          </fieldset>
-          <label>{t('elementPositions')}<Select value={zone ?? ''} onChange={event => selectZone((event.target.value || undefined) as keyof Zones | undefined)}>
-            <option value="">{t('hideGuides')}</option>
-            {(Object.keys(zoneLabels) as Array<keyof Zones>).map(key => <option key={key} value={key}>{t(zoneLabels[key])}</option>)}
+        {!original && <fieldset className="template-settings">
+          <legend>{t('visibleSections')}</legend>
+          {(Object.keys(zoneLabels) as Array<keyof Zones>).map(key => <label className="check" key={key}>
+            <input type="checkbox" checked={!card.hiddenZones?.includes(key)} onChange={event => update({
+              hiddenZones: event.target.checked ? (card.hiddenZones ?? []).filter(item => item !== key) : [...(card.hiddenZones ?? []), key]
+            })} />{t(zoneLabels[key])}
+          </label>)}
+        </fieldset>}
+        <div className="template-settings">
+          <label>{t('editElement')}<Select value={original && zone === 'art' ? '' : zone ?? ''}
+            onChange={event => selectZone((event.target.value || undefined) as FrameElement | undefined)}>
+            <option value="">{t('selectElement')}</option>
+            {frameTextAreas.map(area => <option key={area} value={area}>{t(textAreaLabels[area])}</option>)}
+            {!original && <option value="art">{t('art')}</option>}
           </Select></label>
-          {zone && <>
+          {layoutZone && <>
+            <ZoneFields rect={cardZones(renderedCard)[layoutZone]} update={rect => update({ zoneOverrides: { ...card.zoneOverrides, [layoutZone]: rect } })} />
             <p className="muted">{t('cardZoneHelp')}</p>
-            <ZoneFields rect={cardZones(renderedCard)[zone]} update={rect => update({ zoneOverrides: { ...card.zoneOverrides, [zone]: rect } })} />
-            {card.zoneOverrides?.[zone] && <button className="icon-label" onClick={() => {
+            {card.zoneOverrides?.[layoutZone] && <button className="icon-label" onClick={() => {
               const overrides = { ...card.zoneOverrides };
-              delete overrides[zone];
+              delete overrides[layoutZone];
               update({ zoneOverrides: overrides });
             }}><Icon name="reset" />{' '}{t('resetFramePosition')}</button>}
           </>}
-        </>}
+          {textArea && <>
+            <label>{t('horizontalAlignment')}<Select value={original ? '' : card.textAlignOverrides?.[textArea] ?? ''}
+              onChange={event => setTextAlign(textArea, event.target.value as FrameTextAlign | '')}>
+              <option value="">{t('inheritFrameAlignment')}</option>
+              <option value="left">{t('left')}</option><option value="center">{t('center')}</option><option value="right">{t('right')}</option>
+            </Select></label>
+            {original && <p className="muted">{t('printingAlignmentHelp')}</p>}
+          </>}
+        </div>
 
         {colorSet && <>
           <p className="muted">{t('frameApplied', { colors: colorsForFrame(cardFrameColors(renderedCard), colorSet.mix).map(color => t(frameColorNames[color])).join(' / ') })}</p>

@@ -8,7 +8,7 @@ import type { CustomFrame } from '../shared/templates.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { assetURL, blankCard, cardSide, createCard, createProject, defaultCrop, defaultZones, isCardModified, rebaseBackSide, sideFrameSettings, sideOrientation, sideState } from '../shared/model.js';
-import type { Card, DeckEntry, FrameSet, Printing, Project, Rect, Template, TemplateAppearance, Zones } from '../shared/model.js';
+import type { Card, DeckEntry, FrameSet, Printing, Project, Rect, Template, TemplateAppearance } from '../shared/model.js';
 import { matchesCardSearch, parseDeckRows } from '../shared/deck.js';
 import { cardsWithSharedArt } from '../shared/shared-art.js';
 import { loadDeckCards } from '../shared/deck-import.js';
@@ -16,6 +16,7 @@ import { FrameSets } from './FrameSets.js';
 import { FrameGallery } from './FrameGallery.js';
 import { Batch } from './Batch.js';
 import { Inspector } from './Inspector.js';
+import type { FrameElement } from './Inspector.js';
 import { Preview, PreviewGuidesButton } from './Preview.js';
 import { PrintPanel } from './PrintPanel.js';
 import type { PrintDraft } from './PrintPanel.js';
@@ -127,7 +128,7 @@ export function App() {
   const [systemFonts, setSystemFonts] = useState(['Arial', 'Arial Black', 'Calibri', 'Cambria', 'Georgia', 'Helvetica', 'Times New Roman', 'Verdana']);
   const [active, setActive] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [zone, setZone] = useState<keyof Zones>();
+  const [zone, setZone] = useState<FrameElement>();
   const [back, setBack] = useState(false);
   const [compare, setCompare] = useState(false);
   const [showPreviewGuides, setShowPreviewGuides] = useState(true);
@@ -622,7 +623,7 @@ export function App() {
   }
 
   function changeZone(rect: Rect) {
-    if (!selectedRendered || !zone || mirror) return;
+    if (!selectedRendered || !zone || zone === 'artist' || mirror) return;
     if (selectedRendered.frame.kind === 'printing' && zone === 'art') {
       updateSide(selectedRendered.id, { frame: { ...selectedRendered.frame, artZone: rect } }, true);
     } else if (selectedRendered.frame.kind !== 'printing') {
@@ -905,7 +906,7 @@ export function App() {
             ) : selectedRendered && !usesArt(selectedRendered) && !selectedRendered.source.images.front ? <div className="missing-printing">
               <p role="status">{loadingImage ? t('loadingScan') : card.source.images.error ?? t('scanUnavailable')}</p>
               {!loadingImage && <button onClick={() => void loadPrintingImages(selectedRendered)}>{t('retryLoading')}</button>}
-            </div> : <Preview card={selectedRendered!} showThirds={showPreviewGuides} zone={mirror ? undefined : zone} onZone={mirror ? undefined : changeZone}
+            </div> : <Preview card={selectedRendered!} showThirds={showPreviewGuides} zone={mirror || zone === 'artist' ? undefined : zone} onZone={mirror ? undefined : changeZone}
               hideArtworkWarning={missingArtwork}
               onCrop={selectedCard?.source.editable && (selectedRendered?.frame.kind !== 'printing' || !!selectedCard.art) ? crop => updateSide(card.id, { crop }, true) : undefined} />}
             </div>
