@@ -69,6 +69,21 @@ test('orientation is determined independently for physical sides and split cards
   assert.equal(sideOrientation(card('Normal')), 'portrait');
 });
 
+test('alignment overrides survive saving and project frames independently for each side', () => {
+  const front = createCard({ ...blankCard, images: { front: image, back: image } });
+  front.textAlignOverrides = { title: 'right', rules: 'center' };
+  assert.equal(isCardModified(front), true);
+  assert.equal(cardSide(front, true).textAlignOverrides, undefined);
+
+  const back = cardSide(front, true);
+  front.backSide = sideState({ ...back, textAlignOverrides: { rules: 'right' } });
+  const frame = newTemplate('full-art');
+  const project = projectSchema.parse(JSON.parse(JSON.stringify({ ...createProject(), cards: [front], frame })));
+  const [rendered] = projectCards(project);
+  assert.deepEqual(rendered.textAlignOverrides, { title: 'right', rules: 'center' });
+  assert.deepEqual(cardSide(rendered, true).textAlignOverrides, { rules: 'right' });
+});
+
 test('decklist import preserves order, quantities, set and collector number and reports invalid quantities', () => {
   const { entries, errors } = parseDeck('Commander:\n1 Sol Ring\n2 Lightning Bolt (2X2) 117 *F*\n3xForest\nIsland\n0 Mountain\n4x Plains');
   assert.deepEqual(entries, [
@@ -192,7 +207,7 @@ test('saved project templates override existing and future cards of the correspo
   const extendedArt = newTemplate('extended-art');
   const legacy = { ...templateAppearance(fullArt), textColor: '#112233' };
   const changed = {
-    ...templateAppearance(fullArt), autoTextColor: true, shadeColor: '#445566', titleBlur: 12,
+    ...templateAppearance(fullArt), autoTextColors: { title: true, rules: false, type: true }, shadeColor: '#445566', titleBlur: 12,
     topEffect: { anchor: 'title', height: 18 }, bottomEffect: { anchor: 'manual', height: 31.5 },
     dividerLength: 40, dividerPadding: 14, decorations: [{
       id: crypto.randomUUID(), name: 'Incisione', source: { kind: 'motif', motif: 'frame' },
@@ -221,8 +236,8 @@ test('selects frame layers from the card colors and falls back to colorless when
     mix: true, zones: defaultZones };
   assert.deepEqual(colorsForFrame([], true), ['C']);
   assert.deepEqual(colorsForFrame(['B'], false), ['B']);
-  assert.deepEqual(colorsForFrame(['G', 'W', 'R'], true), ['W', 'R', 'G']);
-  assert.deepEqual(colorFrameLayers(set, ['G', 'R']), [set.assets.R, set.assets.G]);
+  assert.deepEqual(colorsForFrame(['G', 'W', 'R'], true), ['G', 'W', 'R']);
+  assert.deepEqual(colorFrameLayers(set, ['G', 'R']), [set.assets.G, set.assets.R]);
   assert.deepEqual(colorFrameLayers({ ...set, mix: false }, ['G', 'R']), [set.assets.C]);
   const project = createProject();
   const item = { ...card('Forest'), frame: { kind: 'color-set', set } };

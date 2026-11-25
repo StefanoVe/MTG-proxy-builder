@@ -2,19 +2,22 @@ import { Dropdown } from './Dropdown.js';
 import { Select } from './Select.js';
 import type { MessageKey } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
-import { cardColorKeys } from './card-colors.js';
+import { cardFrameColors } from './card-colors.js';
 import { cardZones } from './card-zones.js';
 import { colorsForFrame } from '../shared/frame-colors.js';
 import { frameAppearance, newTemplate, presetFrame } from '../shared/templates.js';
 import { useState } from 'react';
 import { detectedArtZone } from './compose.js';
-import { cardArtZone, defaultCrop, frameColorNames, isTemplate, printingFields, templateNames } from '../shared/model.js';
-import type { Asset, Card, FrameSet, Preset, Rect, TemplateAppearance, Zones } from '../shared/model.js';
+import { cardArtZone, defaultCrop, frameColorNames, frameTextAreas, isTemplate, printingFields, templateNames } from '../shared/model.js';
+import type { Asset, Card, FrameSet, FrameTextAlign, FrameTextArea, Preset, Rect, TemplateAppearance, Zones } from '../shared/model.js';
 import { isCardModified } from '../shared/model.js';
 import { Icon } from './Icon.js';
 import type { IconName } from './Icon.js';
 
 export const zoneLabels: Record<keyof Zones, MessageKey> = { art: 'art', title: 'header', type: 'type', rules: 'text', stats: 'stats' };
+const textAreaLabels: Record<FrameTextArea, MessageKey> = {
+  title: zoneLabels.title, type: zoneLabels.type, rules: 'cardText', stats: zoneLabels.stats, artist: 'artistCredit'
+};
 const rarityNames: Partial<Record<string, MessageKey>> = { common: 'common', uncommon: 'uncommon', rare: 'rare', mythic: 'mythic', special: 'special', bonus: 'bonus' };
 function SectionTitle({ icon, children }: { icon: IconName; children: string }) {
   return <h3 className="inspector-section-title"><Icon name={icon} size={15} />{children}</h3>;
@@ -108,6 +111,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
 }) {
   const { t, locale } = useI18n();
   const [tab, setTab] = useState<'card' | 'art' | 'frame'>('card');
+  const [textArea, setTextArea] = useState<FrameTextArea>('rules');
   const [presetName, setPresetName] = useState('');
   const pasteLabel = t(sharedFrame ? 'pasteFrameSettings' : 'pasteFrame');
   const custom = card.frame.kind === 'custom' ? card.frame : undefined;
@@ -129,6 +133,17 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
   }
   function changeArtZone(rect: Rect) {
     update({ zoneOverrides: { ...card.zoneOverrides, art: rect } });
+  }
+
+  function setTextAlign(align: FrameTextAlign | '') {
+    const overrides = { ...card.textAlignOverrides };
+    if (align) overrides[textArea] = align;
+    else delete overrides[textArea];
+    update({
+      textAlignOverrides: Object.keys(overrides).length ? overrides : undefined,
+      ...(original && align ? { frame: newTemplate('full-art', fullArtBase) } : {})
+    });
+    if (original && align) selectZone(undefined);
   }
 
   async function toggleArtZone() {
@@ -175,6 +190,16 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
         <label><FieldLabel icon="mana">{t('manaCost')}</FieldLabel><input value={visibleFields.mana} maxLength={100} placeholder="{1}{U}" onChange={event => setField('mana', event.target.value)} /></label>
         <label><FieldLabel icon="type">{t('type')}</FieldLabel><input value={visibleFields.type} maxLength={300} placeholder={t('instant')} onChange={event => setField('type', event.target.value)} /></label>
         <label><FieldLabel icon="text">{t('cardText')}</FieldLabel><textarea value={visibleFields.rules} maxLength={12000} rows={6} onChange={event => setField('rules', event.target.value)} /></label>
+        <div className="template-control-grid">
+          <label>{t('textToAlign')}<Select value={textArea} onChange={event => setTextArea(event.target.value as FrameTextArea)}>
+            {frameTextAreas.map(area => <option key={area} value={area}>{t(textAreaLabels[area])}</option>)}
+          </Select></label>
+          <label>{t('horizontalAlignment')}<Select value={original ? '' : card.textAlignOverrides?.[textArea] ?? ''}
+            onChange={event => setTextAlign(event.target.value as FrameTextAlign | '')}>
+            <option value="">{t('inheritFrameAlignment')}</option>
+            <option value="left">{t('left')}</option><option value="center">{t('center')}</option><option value="right">{t('right')}</option>
+          </Select></label>
+        </div>
         {(/\b(planeswalker)\b/i.test(visibleFields.type) || visibleFields.loyalty) ?
           <label><FieldLabel icon="stats">{t('loyalty')}</FieldLabel><input value={visibleFields.loyalty} maxLength={12} onChange={event => setField('loyalty', event.target.value)} /></label>
           : (/\b(battle|battaglia)\b/i.test(visibleFields.type) || visibleFields.defense) ?
@@ -286,7 +311,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
         </>}
 
         {colorSet && <>
-          <p className="muted">{t('frameApplied', { colors: colorsForFrame(cardColorKeys(renderedCard), colorSet.mix).map(color => t(frameColorNames[color])).join(' / ') })}</p>
+          <p className="muted">{t('frameApplied', { colors: colorsForFrame(cardFrameColors(renderedCard), colorSet.mix).map(color => t(frameColorNames[color])).join(' / ') })}</p>
         </>}
         {(colorSet || renderedCard.frame.kind === 'custom') && <ToolButton icon="settings" label={t('editCustomFrame')} onClick={editCustomFrame} />}
         {!sharedFrame && !!presets.length && <label>{t('applyPreset')}<Select value="" onChange={event => {

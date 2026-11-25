@@ -1,13 +1,11 @@
-import type { CardData, FrameColor, FrameSet } from './model.js';
+import type { FrameColor, FrameSet } from './model.js';
 
-const ordered = ['W', 'U', 'B', 'R', 'G'] as const;
-
-export function colorsForFrame(colors: CardData['colors'], mix: boolean): FrameColor[] {
-  const present = ordered.filter(color => colors.includes(color));
+export function colorsForFrame(colors: FrameColor[], mix: boolean): FrameColor[] {
+  const present = [...new Set(colors)];
   if (present.length === 1 || (mix && present.length > 1)) return present;
   return ['C'];
 }
 
-export function colorFrameLayers(set: FrameSet, colors: CardData['colors']) {
+export function colorFrameLayers(set: FrameSet, colors: FrameColor[]) {
   return colorsForFrame(colors, set.mix).map(color => set.assets[color]);
 }

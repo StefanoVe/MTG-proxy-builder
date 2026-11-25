@@ -3,11 +3,19 @@ import { assetURL } from '../shared/model.js';
 import type { SymbolOverrides } from '../shared/model.js';
 
 const artwork = import.meta.glob<string>('./mana-assets/*.svg', { query: '?raw', import: 'default', eager: true });
+const defaultURLs = new Map<string, string>();
 const loaded = new Map<string, Promise<HTMLImageElement | undefined>>();
 
 export function defaultSymbolURL(symbol: string) {
-  const svg = artwork[`./mana-assets/${manaFile(symbol)}.svg`];
-  return svg ? `data:image/svg+xml,${encodeURIComponent(svg)}` : undefined;
+  const file = manaFile(symbol);
+  if (!file) return;
+  const cached = defaultURLs.get(file);
+  if (cached) return cached;
+  const svg = artwork[`./mana-assets/${file}.svg`];
+  if (!svg) return;
+  const url = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  defaultURLs.set(file, url);
+  return url;
 }
 
 async function readIcon(url: string, asset: boolean) {

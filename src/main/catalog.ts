@@ -19,6 +19,7 @@ const face = z.object({
   flavor_text: z.string().nullish(), oracle_text: z.string().optional(), printed_text: z.string().optional(), printed_name: z.string().optional(),
   printed_type_line: z.string().optional(), power: z.string().optional(), toughness: z.string().optional(),
   defense: z.string().optional(), loyalty: z.string().optional(), artist: z.string().optional(),
+  colors: z.array(z.enum(['W', 'U', 'B', 'R', 'G'])).optional(),
   image_uris: uris.optional()
 });
 const scryCard = face.extend({
@@ -171,7 +172,7 @@ export async function getCard(id: string, includeImages = true, locale: Locale =
       printedName: physicalFaces ? firstFace?.printed_name ?? firstFace?.name : card.printed_name, rarity: card.rarity ?? '', lang: card.lang,
       layeredArt: !card.full_art && card.border_color !== 'borderless' && !card.frame_effects?.includes('extendedart'), flavor: card.flavor_text ?? '',
       faces: card.card_faces?.map(face => ({
-        name: face.printed_name ?? face.name, mana: face.mana_cost ?? '',
+        name: face.printed_name ?? face.name, mana: face.mana_cost ?? '', colors: face.colors,
         type: face.printed_type_line ?? face.type_line ?? '', rules: face.printed_text ?? face.oracle_text ?? '',
         flavor: face.flavor_text ?? '', artist: face.artist ?? '',
         power: face.power ?? '', toughness: face.toughness ?? '', loyalty: face.loyalty ?? '', defense: face.defense ?? ''

@@ -4,6 +4,9 @@ import { createPortal } from 'react-dom';
 import { Dropdown } from './Dropdown.js';
 
 type Option = { value: string; label: ReactNode; disabled: boolean; group?: string };
+type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
+  renderOption?: (value: string, label: ReactNode) => ReactNode;
+};
 
 function optionsFrom(children: ReactNode, group?: string): Option[] {
   return Children.toArray(children).flatMap(child => {
@@ -14,7 +17,7 @@ function optionsFrom(children: ReactNode, group?: string): Option[] {
   });
 }
 
-export function Select({ children, value, onChange, disabled, className, title, 'aria-label': ariaLabel }: SelectHTMLAttributes<HTMLSelectElement>) {
+export function Select({ children, value, onChange, disabled, className, title, renderOption, 'aria-label': ariaLabel }: SelectProps) {
   const options = optionsFrom(children);
   const selected = options.find(option => option.value === String(value));
   const [open, setOpen] = useState(false);
@@ -62,6 +65,7 @@ export function Select({ children, value, onChange, disabled, className, title, 
       if (!options[next].disabled) { setActive(next); break; }
     }
   }
+  const optionLabel = (option: Option) => renderOption ? renderOption(option.value, option.label) : option.label;
   return <div className={`select-control${className ? ` ${className}` : ''}`} onKeyDown={event => {
     if (event.key !== 'Escape' || (!open && !event.repeat)) return;
     event.preventDefault();
@@ -76,11 +80,11 @@ export function Select({ children, value, onChange, disabled, className, title, 
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); if (!open) show(); else move(event.key === 'ArrowDown' ? 1 : -1); }
         else if (open && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); choose(active); }
         else if (open && event.key === 'Tab') setOpen(false);
-      }}><span>{selected?.label}</span><span aria-hidden="true" className="select-arrow">▾</span></button>
+      }}><span>{selected && optionLabel(selected)}</span><span aria-hidden="true" className="select-arrow">▾</span></button>
     {open && createPortal(<Dropdown ref={menu} id={id} className="select-menu" role="listbox" aria-label={ariaLabel} style={{ top: position.top, left: position.left, width: position.width, maxHeight: position.maxHeight, transform: position.above ? 'translateY(-100%)' : undefined }}>
       {options.map((option, index) => <div key={`${option.value}-${index}`}>
         {option.group && (index === 0 || options[index - 1].group !== option.group) && <div className="select-group">{option.group}</div>}
-        <button id={`${id}-option-${index}`} type="button" role="option" tabIndex={-1} aria-selected={option.value === String(value)} disabled={option.disabled} data-active={index === active} data-value={option.value} onMouseMove={() => setActive(index)} onClick={() => choose(index)}>{option.label}</button>
+        <button id={`${id}-option-${index}`} type="button" role="option" tabIndex={-1} aria-selected={option.value === String(value)} disabled={option.disabled} data-active={index === active} data-value={option.value} onMouseMove={() => setActive(index)} onClick={() => choose(index)}>{optionLabel(option)}</button>
       </div>)}
     </Dropdown>, trigger.current?.closest('dialog') ?? document.body)}
   </div>;

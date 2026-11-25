@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Locale } from './i18n.js';
 import { manaFiles } from './mana-catalog.ts';
+import { manaColorKeys, manaTokens } from './mana.ts';
 
 export const assetId = z.string().regex(/^[a-f0-9]{64}$/);
 const uuid = z.uuid();
@@ -18,13 +19,15 @@ export const defaultZones: Zones = {
 
 const text = z.string().max(300);
 const printingImages = z.object({ front: assetId.optional(), back: assetId.optional(), art: assetId.optional(), backArt: assetId.optional(), error: text.optional() });
+const printingColors = z.array(z.enum(['W', 'U', 'B', 'R', 'G'])).max(5);
 const faceDetails = z.object({
   name: text, mana: text, type: text, rules: z.string().max(12000),
-  flavor: z.string().max(4000), artist: text, power: text, toughness: text, loyalty: text, defense: text
+  flavor: z.string().max(4000), artist: text, power: text, toughness: text, loyalty: text, defense: text,
+  colors: printingColors.optional()
 });
 export const cardDataSchema = z.object({
   printingId: z.string(), oracleId: z.string(), name: text, set: text, setName: text, number: text,
-  layout: text, editable: z.boolean(), colors: z.array(z.enum(['W', 'U', 'B', 'R', 'G'])).max(5),
+  layout: text, editable: z.boolean(), colors: printingColors,
   orientation: z.enum(['portrait', 'landscape']).optional(), backOrientation: z.enum(['portrait', 'landscape']).optional(),
   mana: text, type: text, rules: z.string().max(12000), artist: text,
   power: text, toughness: text, loyalty: text, defense: text,
@@ -66,8 +69,11 @@ const templateEffectSchema = z.object({
 export type TemplateEffect = z.infer<typeof templateEffectSchema>;
 export const frameTextAreas = ['title', 'type', 'rules', 'stats', 'artist'] as const;
 export type FrameTextArea = typeof frameTextAreas[number];
+export const cardColorTextAreas = ['title', 'rules', 'type'] as const;
+const frameTextAlignSchema = z.enum(['left', 'center', 'right']);
+export type FrameTextAlign = z.infer<typeof frameTextAlignSchema>;
 const frameTextStyleSchema = z.object({
-  align: z.enum(['left', 'center', 'right']).optional(),
+  align: frameTextAlignSchema.optional(),
   size: z.number().int().min(8).max(96).optional()
 });
 export type FrameTextStyle = z.infer<typeof frameTextStyleSchema>;
@@ -80,7 +86,8 @@ export const templateAppearanceSchema = z.object({
   textColor: hexColor, fontFamily: fontFamilySchema.optional(), accent: hexColor.optional(), divider: z.boolean(),
   textStyles: z.partialRecord(z.enum(frameTextAreas), frameTextStyleSchema).optional(),
   titleShade: z.number().min(0).max(1), rulesShade: z.number().min(0).max(1),
-  autoTextColor: z.boolean().optional(), shadeColor: hexColor.optional(),
+  autoTextColor: z.boolean().optional(),
+  autoTextColors: z.partialRecord(z.enum(cardColorTextAreas), z.boolean()).optional(), shadeColor: hexColor.optional(),
   titleBlur: z.number().min(0).max(32).optional(), rulesBlur: z.number().min(0).max(32).optional(),
   topEffect: templateEffectSchema.optional(), bottomEffect: templateEffectSchema.optional(),
   titleDivider: z.boolean().optional(), dividerLength: z.number().min(5).max(100).optional(),
@@ -89,7 +96,9 @@ export const templateAppearanceSchema = z.object({
   dividerStyle: z.enum(['solid', 'fade', 'dashed']).optional(),
   titleDividerHideWhen: visibilityConditionSchema.optional(), dividerHideWhen: visibilityConditionSchema.optional(),
   decorations: z.array(decorationSchema).max(maxDecorations).optional()
-});
+}).transform(({ autoTextColor, ...appearance }) => autoTextColor && !appearance.autoTextColors
+  ? { ...appearance, autoTextColors: { title: true, rules: true, type: true } }
+  : appearance);
 export type TemplateAppearance = z.infer<typeof templateAppearanceSchema>;
 
 export const frameColors = ['W', 'U', 'B', 'R', 'G', 'C'] as const;
@@ -118,27 +127,15 @@ const cardSideSchema = z.object({
   zoneOverrides: zonesSchema.partial().optional(),
   hiddenZones: z.array(z.enum(['art', 'title', 'type', 'rules', 'stats'])).optional(),
   dividerOverrides: z.object({ titleDivider: z.boolean().optional(), divider: z.boolean().optional() }).optional(),
+  textAlignOverrides: z.partialRecord(z.enum(frameTextAreas), frameTextAlignSchema).optional(),
   crop: z.object({ x: z.number().min(-1).max(1), y: z.number().min(-1).max(1), zoom: z.number().min(1).max(5) }),
   frame: z.discriminatedUnion('kind', [builtInFrameSchema, z.object({ kind: z.literal('printing'), artZone: rect.optional() }), templateFrameSchema,
     z.object({ kind: z.literal('color-set'), set: frameSetSchema }), customFrameSchema])
 });
 
-export const cardSchema = z.object({
+export const cardSchema = cardSideSchema.extend({
   id: uuid, count: z.number().int().min(1).max(999), source: cardDataSchema,
-  fields: cardDataSchema.pick({ name: true, mana: true, type: true, rules: true, artist: true, power: true, toughness: true, loyalty: true, defense: true }),
-  art: assetId.optional(),
-  zoneOverrides: zonesSchema.partial().optional(),
-  hiddenZones: z.array(z.enum(['art', 'title', 'type', 'rules', 'stats'])).optional(),
-  dividerOverrides: z.object({ titleDivider: z.boolean().optional(), divider: z.boolean().optional() }).optional(),
-  crop: z.object({ x: z.number().min(-1).max(1), y: z.number().min(-1).max(1), zoom: z.number().min(1).max(5) }),
-  backSide: cardSideSchema.optional(),
-  frame: z.discriminatedUnion('kind', [
-    builtInFrameSchema,
-    z.object({ kind: z.literal('printing'), artZone: rect.optional() }),
-    templateFrameSchema,
-    z.object({ kind: z.literal('color-set'), set: frameSetSchema }),
-    customFrameSchema
-  ])
+  backSide: cardSideSchema.optional()
 });
 export const presetSchema = customFrameSchema.omit({ kind: true }).extend({ id: uuid, name: z.string().trim().min(1).max(100) });
 export const projectSchema = z.object({
@@ -213,13 +210,14 @@ export function cardSide(card: Card, back: boolean): Card {
   if (!back) return card;
   const face = card.source.details?.faces[1];
   const source = { ...card.source, name: face?.name ?? card.source.faceNames[1] ?? card.source.name,
-    ...(face ? { mana: face.mana, type: face.type, rules: face.rules, artist: face.artist, power: face.power,
+    ...(face ? { colors: face.colors ?? manaColorKeys(manaTokens(face.mana)),
+      mana: face.mana, type: face.type, rules: face.rules, artist: face.artist, power: face.power,
       toughness: face.toughness, loyalty: face.loyalty, defense: face.defense } : {}),
     editable: true, orientation: card.source.backOrientation ?? (/\b(battle|battaglia)\b/i.test(face?.type ?? '') ? 'landscape' as const : 'portrait' as const),
     backOrientation: undefined, images: { front: card.source.images.back, art: card.source.images.backArt },
     details: card.source.details ? { ...card.source.details, printedName: face?.name, faces: [] } : undefined };
   const initial = createCard(source, card.count);
-  return { ...card, ...initial, ...card.backSide, id: card.id, source, backSide: undefined };
+  return { ...card, ...initial, textAlignOverrides: undefined, ...card.backSide, id: card.id, source, backSide: undefined };
 }
 
 /** Orientation describes the readable face, independently of the physical sheet slot. */
@@ -233,8 +231,8 @@ export function sideOrientation(card: Card, back = false): 'portrait' | 'landsca
 }
 
 export function sideState(card: Card): NonNullable<Card['backSide']> {
-  const { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides } = card;
-  return { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides };
+  const { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides, textAlignOverrides } = card;
+  return { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides, textAlignOverrides };
 }
 
 export function rebaseBackSide(card: Card, source: CardData): Card['backSide'] {
@@ -259,6 +257,7 @@ export function isCardModified(card: Card): boolean {
   if (!defaultFrame || card.art || crop.x !== defaultCrop.x || crop.y !== defaultCrop.y || crop.zoom !== defaultCrop.zoom
     || (card.hiddenZones?.length ?? 0) > 0
     || Object.values(card.zoneOverrides ?? {}).some(value => value !== undefined)
+    || Object.values(card.textAlignOverrides ?? {}).some(value => value !== undefined)
     || Object.values(card.dividerOverrides ?? {}).some(value => value !== undefined)) return true;
 
   const originalFields = printingFields(card.source);

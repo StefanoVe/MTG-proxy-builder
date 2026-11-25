@@ -2,6 +2,7 @@ import { Select } from './Select.js';
 import { errorMessage } from '../shared/i18n.js';
 import type { MessageKey } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
+import { CardTextColorControls } from './CardTextColorControls.js';
 import { useId, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { assetURL, blankCard, createCard, frameColorNames, frameColors, isTemplate, maxDecorations, templateNames } from '../shared/model.js';
@@ -188,9 +189,8 @@ export function TemplateEditor({ tab, selectTab, appearance, customFrame, custom
             <fieldset className="template-settings">
               <legend>{t('typography')}</legend>
               <FontPicker value={appearance.fontFamily ?? 'Georgia'} fonts={fonts} onChange={fontFamily => patch({ fontFamily })} />
-              <label className="check"><input type="checkbox" checked={appearance.autoTextColor ?? false}
-                onChange={event => patch({ autoTextColor: event.target.checked })} />{t('textColorFromCard')}</label>
-              {!appearance.autoTextColor && <ColorControl label={t('textColor')} value={appearance.textColor} change={textColor => patch({ textColor })} />}
+              <CardTextColorControls appearance={appearance} change={change} />
+              <ColorControl label={t('textColor')} value={appearance.textColor} change={textColor => patch({ textColor })} />
             </fieldset>
             <fieldset className="template-settings">
               <legend>{t('shadeAndBlur')}</legend>

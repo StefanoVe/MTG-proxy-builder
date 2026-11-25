@@ -1,6 +1,6 @@
 import { LocalizedError } from '../shared/i18n.js';
 import type { MessageKey } from '../shared/i18n.js';
-import { automaticTextColor, cardColorKeys, cardColors, cardPaint, toneOf } from './card-colors.js';
+import { cardFrameColors, cardPaint, resolveCardColors } from './card-colors.js';
 import type { CardPaint } from './card-colors.js';
 import { cardZones } from './card-zones.js';
 import { blendColorFrames } from './color-frames.js';
@@ -72,10 +72,10 @@ export function detectedArtZone(card: Card): Promise<Rect | undefined> {
   return result;
 }
 
-function drawRect(ctx: CanvasRenderingContext2D, r: Rect, fill: string, radius: number, stroke?: string) {
+function drawRect(ctx: CanvasRenderingContext2D, r: Rect, fill: CardPaint, radius: number, stroke?: string) {
   ctx.beginPath();
   ctx.roundRect(r.x, r.y, r.w, r.h, radius);
-  ctx.fillStyle = fill;
+  ctx.fillStyle = cardPaint(ctx, fill, r.x, r.w);
   ctx.fill();
   if (stroke) {
     ctx.lineWidth = 3;
@@ -232,7 +232,7 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
     !actualPrinting && appearance?.overlay ? loadImage(appearance.overlay) : undefined,
     printedId ? loadImage(printedId) : undefined,
     !actualPrinting && !back ? manaIcons(card.fields.mana, card.fields.rules, appearance?.symbolOverrides) : new Map<string, HTMLImageElement>(),
-    set && !actualPrinting && !back ? Promise.all(colorFrameLayers(set, cardColorKeys(card)).map(loadImage)) : undefined,
+    set && !actualPrinting && !back ? Promise.all(colorFrameLayers(set, cardFrameColors(card)).map(loadImage)) : undefined,
     !actualPrinting && !back ? Promise.all((appearance?.decorations ?? []).filter(layer =>
       layer.opacity > 0 && !hiddenByCondition(layer.hideWhen, card.fields)).map(async decoration => ({
       decoration,
@@ -270,10 +270,10 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   if (back || actualPrinting) throw new LocalizedError('missingScanHelp');
   const overlay = colorFrames && colorFrames.length > 1 ? blendColorFrames(colorFrames, width, height) : colorFrames?.[0] ?? sourceOverlay;
   const zones = cardZones(card);
-  const [ink, paper] = cardColors[toneOf(card)];
-  const autoColor = appearance ? automaticTextColor(card, appearance.symbolOverrides, paper) : paper;
-  const cardColor = typeof autoColor === 'string' ? paper : autoColor;
-  const textColor = appearance?.autoTextColor ? autoColor : appearance?.textColor ?? '#24211e';
+  const { cardColor, border, panel } = resolveCardColors(card, appearance?.symbolOverrides);
+  const textColor = appearance?.textColor ?? '#24211e';
+  const autoTextColors: Partial<Record<FrameTextArea, boolean>> = appearance?.autoTextColors ?? {};
+  const colorForText = (area: FrameTextArea) => autoTextColors[area] ? cardColor : textColor;
   const font = canvasFontFamily(appearance?.fontFamily);
   const classic = card.frame.kind === 'classic';
   const illustration = box(zones.art);
@@ -284,16 +284,16 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
     ctx.save();
     ctx.scale(width / pixels.width, height / pixels.height);
     const baseWidth = pixels.width, baseHeight = pixels.height;
-    drawRect(ctx, { x: 23, y: 24, w: baseWidth - 46, h: baseHeight - 48 }, ink, classic ? 3 : 21, '#0e0f10');
+    drawRect(ctx, { x: 23, y: 24, w: baseWidth - 46, h: baseHeight - 48 }, border, classic ? 3 : 21, '#0e0f10');
     if (classic) {
       ctx.strokeStyle = '#cfbc87';
       ctx.lineWidth = 3;
       ctx.strokeRect(31, 33, baseWidth - 62, baseHeight - 66);
     }
-    if (!hidden.has('title')) drawRect(ctx, { x: 37, y: 42, w: baseWidth - 74, h: 69 }, paper, classic ? 1 : 12, '#302b25');
-    if (!hidden.has('type')) drawRect(ctx, { x: 37, y: 623, w: baseWidth - 74, h: 64 }, paper, classic ? 1 : 10, '#302b25');
-    if (!hidden.has('rules')) drawRect(ctx, { x: 37, y: 693, w: baseWidth - 74, h: 254 }, paper, classic ? 1 : 12, '#302b25');
-    if (stats && !hidden.has('stats')) drawRect(ctx, templateBox(zones.stats), paper, classic ? 1 : 12, '#302b25');
+    if (!hidden.has('title')) drawRect(ctx, { x: 37, y: 42, w: baseWidth - 74, h: 69 }, panel, classic ? 1 : 12, '#302b25');
+    if (!hidden.has('type')) drawRect(ctx, { x: 37, y: 623, w: baseWidth - 74, h: 64 }, panel, classic ? 1 : 10, '#302b25');
+    if (!hidden.has('rules')) drawRect(ctx, { x: 37, y: 693, w: baseWidth - 74, h: 254 }, panel, classic ? 1 : 12, '#302b25');
+    if (stats && !hidden.has('stats')) drawRect(ctx, templateBox(zones.stats), panel, classic ? 1 : 12, '#302b25');
     ctx.restore();
   }
   if (!hidden.has('art')) {
@@ -311,9 +311,10 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
 
   const title = box(zones.title);
   const textSize = (area: FrameTextArea) => appearance?.textStyles?.[area]?.size;
-  const textAlign = (area: FrameTextArea) => appearance?.textStyles?.[area]?.align ?? defaultFrameTextAlign(area);
+  const textAlign = (area: FrameTextArea) =>
+    card.textAlignOverrides?.[area] ?? appearance?.textStyles?.[area]?.align ?? defaultFrameTextAlign(area);
   const drawLine = (area: FrameTextArea, text: string, rect: Rect, fallback = defaultFrameTextSizes[area]) =>
-    fitLine(ctx, text, rect, fallback, font, textColor, textAlign(area), textSize(area));
+    fitLine(ctx, text, rect, fallback, font, colorForText(area), textAlign(area), textSize(area));
   const mana = manaTokens(card.fields.mana);
   const manaGap = 4;
   const diameter = Math.min(41, title.h * 0.78, (title.w * 0.62 - manaGap * Math.max(0, mana.length - 1)) / Math.max(1, mana.length));
@@ -321,11 +322,11 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   if (!hidden.has('title')) drawLine('title', card.fields.name, { ...title, w: title.w - manaWidth - (mana.length ? 10 : 0) });
   if (!hidden.has('title')) mana.forEach((token, index) => {
     const x = title.x + title.w - manaWidth + index * (diameter + manaGap);
-    drawSymbol(ctx, icons, token, x, title.y + (title.h - diameter) / 2, diameter, cardPaint(ctx, textColor, x, diameter));
+    drawSymbol(ctx, icons, token, x, title.y + (title.h - diameter) / 2, diameter, cardPaint(ctx, colorForText('title'), x, diameter));
   });
   if (!hidden.has('type')) drawLine('type', card.fields.type, box(zones.type));
   if (stats && !hidden.has('stats')) drawLine('stats', stats, box(zones.stats));
-  const result = hidden.has('rules') || drawRules(ctx, card.fields.rules, box(zones.rules), textColor, icons, font,
+  const result = hidden.has('rules') || drawRules(ctx, card.fields.rules, box(zones.rules), colorForText('rules'), icons, font,
     textSize('rules') ?? defaultFrameTextSizes.rules, textAlign('rules'));
   if (template) {
     drawLine('artist', card.fields.artist, { x: width * 0.06, y: height * 0.965, w: width * 0.88, h: 23 });

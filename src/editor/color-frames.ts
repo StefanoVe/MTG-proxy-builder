@@ -1,3 +1,5 @@
+import { colorBand } from './card-colors.js';
+
 export function blendColorFrames(images: HTMLImageElement[], width: number, height: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -7,8 +9,6 @@ export function blendColorFrames(images: HTMLImageElement[], width: number, heig
   scratch.width = width;
   scratch.height = height;
   const ctx = scratch.getContext('2d')!;
-  const step = 1 / images.length;
-  const feather = Math.min(0.06, step / 3);
   out.globalCompositeOperation = 'lighter';
 
   images.forEach((image, index) => {
@@ -16,18 +16,17 @@ export function blendColorFrames(images: HTMLImageElement[], width: number, heig
     ctx.clearRect(0, 0, width, height);
     ctx.drawImage(image, 0, 0, width, height);
     if (images.length > 1) {
-      const left = index * step;
-      const right = (index + 1) * step;
+      const { start, end, feather } = colorBand(index, images.length);
       const mask = ctx.createLinearGradient(0, 0, width, 0);
       if (index > 0) {
-        mask.addColorStop(left - feather, 'transparent');
-        mask.addColorStop(left + feather, '#000');
+        mask.addColorStop(start - feather, 'transparent');
+        mask.addColorStop(start + feather, '#000');
       } else {
         mask.addColorStop(0, '#000');
       }
       if (index < images.length - 1) {
-        mask.addColorStop(right - feather, '#000');
-        mask.addColorStop(right + feather, 'transparent');
+        mask.addColorStop(end - feather, '#000');
+        mask.addColorStop(end + feather, 'transparent');
       } else {
         mask.addColorStop(1, '#000');
       }

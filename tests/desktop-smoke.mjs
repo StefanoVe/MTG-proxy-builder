@@ -171,7 +171,8 @@ try {
   assert.ok(result.exact);
   assert.equal(await page.getByLabel('Costo di mana').inputValue(), '{R}');
   assert.equal(await page.getByLabel('Tipo', { exact: true }).inputValue(), 'Instant');
-  assert.equal(await page.getByLabel('Testo della carta').inputValue(), 'Lightning Bolt deals 3 damage to any target.');
+  const cardText = page.getByRole('textbox', { name: 'Testo della carta', exact: true });
+  assert.equal(await cardText.inputValue(), 'Lightning Bolt deals 3 damage to any target.');
   await page.waitForFunction(() => {
     const canvas = document.querySelector('canvas');
     return canvas?.width === 744 && Math.abs(canvas.getContext('2d').getImageData(0, 0, 1, 1).data[1] - 56) < 6;
@@ -180,13 +181,13 @@ try {
   await page.getByRole('button', { name: 'Edizioni' }).click();
   await page.getByRole('button', { name: /Magic 2011/ }).click();
   await page.locator('.source').getByText('Magic 2011').waitFor();
-  await page.getByLabel('Testo della carta').fill('Pesca una carta.');
+  await cardText.fill('Pesca una carta.');
   await page.getByRole('button', { name: 'Cornice', exact: true }).click();
   const template = page.getByLabel(/^Template/);
   assert.equal(await template.getAttribute('data-value'), 'full-art');
   await choose(template, 'extended-art');
   await page.getByRole('button', { name: 'Carta', exact: true }).click();
-  assert.equal(await page.getByLabel('Testo della carta').inputValue(), 'Pesca una carta.');
+  assert.equal(await cardText.inputValue(), 'Pesca una carta.');
   await page.locator('.source').getByText('Magic 2011').waitFor();
   await page.getByRole('button', { name: 'Cornice', exact: true }).click();
   await electron.evaluate(() => globalThis.setSmokeFiles('frame'));
@@ -227,6 +228,27 @@ try {
     return frame.kind === 'color-set' && frame.set.appearance?.textStyles?.title?.align === 'right'
       && frame.set.appearance.textStyles.title.size === 8;
   });
+  const inspector = page.locator('#workspace-properties');
+  await inspector.getByRole('button', { name: 'Carta', exact: true }).click();
+  const textArea = inspector.getByLabel('Testo da allineare');
+  const cardAlignment = inspector.getByLabel('Allineamento orizzontale');
+  assert.equal(await textArea.getAttribute('data-value'), 'rules');
+  assert.equal(await cardAlignment.getAttribute('data-value'), '');
+  await choose(cardAlignment, 'center');
+  await choose(textArea, 'title');
+  await choose(cardAlignment, 'left');
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    const saved = await window.proxy.open(project.id);
+    const card = saved.cards[0];
+    return card.textAlignOverrides?.rules === 'center' && card.textAlignOverrides.title === 'left'
+      && card.frame.set.appearance.textStyles.title.align === 'right';
+  });
+  await choose(cardAlignment, '');
+  await choose(textArea, 'rules');
+  assert.equal(await cardAlignment.getAttribute('data-value'), 'center');
+  await choose(cardAlignment, '');
+  await inspector.getByRole('button', { name: 'Cornice', exact: true }).click();
   const projectFrame = page.locator('.deck').getByLabel('Cornice del progetto');
   await choose(projectFrame, 'import');
   await page.waitForFunction(() => document.querySelector('.deck-controls .select-trigger')?.dataset.value === 'custom');
@@ -309,10 +331,15 @@ try {
   await page.getByRole('button', { name: 'Annulla ultima modifica' }).click();
   await page.getByText('Modifica annullata').waitFor();
   assert.equal(await projectFrame.getAttribute('data-value'), 'full-art');
-  await page.getByLabel('Testo della carta').fill('Pesca una carta. {R}');
+  await cardText.fill('Pesca una carta. {R}');
   await page.getByRole('button', { name: 'Editor cornici', exact: true }).click();
   await page.getByRole('button', { name: 'Simboli', exact: true }).click();
-  await choose(page.getByLabel('Simbolo', { exact: true }), 'R');
+  const symbolSelect = page.getByRole('combobox', { name: 'Simbolo', exact: true });
+  await symbolSelect.click();
+  const redSymbol = page.locator('.select-menu [role=option][data-value="R"]');
+  await redSymbol.locator('img').scrollIntoViewIfNeeded();
+  await page.waitForFunction(() => document.querySelector('.select-menu [data-value="R"] img')?.naturalWidth > 0);
+  await redSymbol.click();
   const symbolFile = page.getByLabel('File del simbolo');
   const symbolPng = await page.evaluate(() => {
     const canvas = document.createElement('canvas');
@@ -324,7 +351,11 @@ try {
   });
   await symbolFile.setInputFiles({ name: 'mana.png', mimeType: 'image/png', buffer: Buffer.from(symbolPng, 'base64') });
   await page.getByRole('button', { name: 'Ripristina immagine' }).waitFor();
-  const verifySymbolPixels = (selector, icon, text) => page.waitForFunction(({ selector, icon, text }) => {
+  assert.match(await symbolSelect.locator('img').getAttribute('src'), /^proxy-asset:\/\/images\//);
+  await symbolSelect.click();
+  assert.equal(await redSymbol.locator('img').getAttribute('src'), await symbolSelect.locator('img').getAttribute('src'));
+  await symbolSelect.press('Escape');
+  const verifySymbolPixels = (selector, icon, coloredAreas) => page.waitForFunction(({ selector, icon, coloredAreas }) => {
     const canvas = document.querySelector(selector);
     if (canvas?.width !== 744) return false;
     const context = canvas.getContext('2d');
@@ -335,15 +366,28 @@ try {
       }
       return false;
     }
-    return contains(icon, 640, 30, 104, 80) && contains(icon, 30, 740, 650, 220)
-      && (!text || contains(text, 30, 30, 500, 80));
-  }, { selector, icon, text });
+    if (!contains(icon, 640, 30, 104, 80) || !contains(icon, 30, 740, 650, 220)) return false;
+    if (!coloredAreas) return true;
+    const color = [0, 255, 255];
+    const areas = { title: [35, 30, 500, 70], rules: [35, 775, 350, 55], type: [35, 700, 350, 42] };
+    return Object.entries(areas).every(([area, box]) => contains(color, ...box) === coloredAreas.includes(area));
+  }, { selector, icon, coloredAreas });
   await verifySymbolPixels('.template-preview canvas', [0, 255, 0]);
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#ff00ff" d="M0 0H16V16H0Z"/></svg>';
   await symbolFile.setInputFiles({ name: 'mana.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(svg) });
-  await page.getByLabel('Colore del testo dalla carta').check();
   await page.getByLabel('Colore del testo · {R}', { exact: true }).fill('#00ffff');
-  await verifySymbolPixels('.template-preview canvas', [255, 0, 255], [0, 255, 255]);
+  const textColorChecks = [
+    ['title', 'Colore del titolo dalla carta'], ['rules', 'Colore del corpo dalla carta'], ['type', 'Colore del tipo dalla carta']
+  ];
+  for (const [area, label] of textColorChecks) {
+    const checkbox = page.getByRole('checkbox', { name: label, exact: true });
+    await checkbox.check();
+    await verifySymbolPixels('.template-preview canvas', [255, 0, 255], [area]);
+    await checkbox.uncheck();
+  }
+  await page.getByRole('button', { name: 'Testo ed effetti' }).click();
+  for (const [, label] of textColorChecks) await page.getByRole('checkbox', { name: label, exact: true }).check();
+  await verifySymbolPixels('.template-preview canvas', [255, 0, 255], ['title', 'rules', 'type']);
   await page.screenshot({ path: join(paths, 'frame-symbols.png') });
   await page.getByRole('button', { name: 'Chiudi', exact: true }).click();
   await page.getByRole('button', { name: 'Esporta', exact: true }).click();
@@ -389,7 +433,7 @@ try {
   page = await electron.firstWindow();
   await page.getByRole('heading', { name: 'Lightning Bolt', exact: true }).waitFor();
   assert.equal(await page.locator('.deck').getByLabel('Cornice del progetto').getAttribute('data-value'), 'full-art');
-  await verifySymbolPixels('.card-preview canvas', [255, 0, 255], [0, 255, 255]);
+  await verifySymbolPixels('.card-preview canvas', [255, 0, 255], ['title', 'rules', 'type']);
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
   await page.getByRole('button', { name: 'PDF per la stampa' }).click();
   await page.getByText(/Pagina 1 di 24/).waitFor();
