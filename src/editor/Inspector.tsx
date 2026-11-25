@@ -1,3 +1,5 @@
+import { Dropdown } from './Dropdown.js';
+import { Select } from './Select.js';
 import type { MessageKey } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
 import { cardZones } from './card-zones.js';
@@ -46,13 +48,13 @@ export function FontPicker({ value, fonts, onChange }: { value: string; fonts: s
   }}>
     <label><FieldLabel icon="type">{t('searchFonts')}</FieldLabel><input type="search" value={query} placeholder={t('fontExample')} onFocus={() => setOpen(true)} onChange={event => { setQuery(event.target.value); setOpen(true); }} /></label>
     <div className="font-current" style={{ fontFamily: fontStack(value) }}><span>{currentName}</span><span className="font-sample">Aa Bb Cc 123</span></div>
-    {open && <div className="font-picker-results" role="listbox" aria-label={t('systemFonts')}>
+    {open && <Dropdown className="font-picker-results" role="listbox" aria-label={t('systemFonts')}>
       {choices.map(font => <button type="button" key={font} role="option" aria-selected={font === value} className="font-option" style={{ fontFamily: fontStack(font) }} onClick={() => {
         onChange(font); setQuery(''); setOpen(false);
       }}><span>{font}</span><span className="font-sample">Aa Bb Cc 123</span></button>)}
       {!choices.length && <p className="muted font-empty">{t('noFonts')}</p>}
       {filtered.length > 120 && <small className="muted font-empty">{t('fontResults')}</small>}
-    </div>}
+    </Dropdown>}
   </div>;
 }
 
@@ -229,7 +231,7 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, re
       </>}
       {tab === 'frame' && <>
         <SectionTitle icon="frames">{t('frame')}</SectionTitle>
-        {sharedFrame ? <p className="muted">{t('projectFrameApplied')}</p> : <label>{t('template')}<select value={colorSet?.id ?? (card.frame.kind === 'template' ? card.frame.template : card.frame.kind)} onChange={event => {
+        {sharedFrame ? <p className="muted">{t('projectFrameApplied')}</p> : <label>{t('template')}<Select value={colorSet?.id ?? (card.frame.kind === 'template' ? card.frame.template : card.frame.kind)} onChange={event => {
           const value = event.target.value;
           if (isTemplate(value)) update({ frame: newTemplate(value, fullArtBase) });
           else if (value === 'printing') update({ frame: { kind: 'printing' } });
@@ -247,7 +249,7 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, re
           </optgroup>}
           {card.frame.kind === 'custom' && <option value="custom">{t('existingPngFrame')}</option>}
           {(card.frame.kind === 'modern' || card.frame.kind === 'classic') && <option value={card.frame.kind}>{t('projectFrame')}</option>}
-        </select></label>}
+        </Select></label>}
         {templateFrame && <fieldset className="template-settings">
           <legend>{t('cardDividers')}</legend>
           {([['titleDivider', t('belowTitle')], ['divider', t('aboveRules')]] as const).map(([key, label]) => <label className="check" key={key}>
@@ -267,10 +269,10 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, re
               })} />{t(zoneLabels[key])}
             </label>)}
           </fieldset>
-          <label>{t('elementPositions')}<select value={zone ?? ''} onChange={event => selectZone((event.target.value || undefined) as keyof Zones | undefined)}>
+          <label>{t('elementPositions')}<Select value={zone ?? ''} onChange={event => selectZone((event.target.value || undefined) as keyof Zones | undefined)}>
             <option value="">{t('hideGuides')}</option>
             {(Object.keys(zoneLabels) as Array<keyof Zones>).map(key => <option key={key} value={key}>{t(zoneLabels[key])}</option>)}
-          </select></label>
+          </Select></label>
           {zone && <>
             <p className="muted">{t('cardZoneHelp')}</p>
             <ZoneFields rect={cardZones(renderedCard)[zone]} update={rect => update({ zoneOverrides: { ...card.zoneOverrides, [zone]: rect } })} />
@@ -286,13 +288,13 @@ export function Inspector({ card, renderedCard, sharedFrame, presets, update, re
           <p className="muted">{t('frameApplied', { colors: colorsForFrame(card.source.colors, colorSet.mix).map(color => t(frameColorNames[color])).join(' / ') })}</p>
           <FrameTextControls color={colorSet.textColor ?? '#24211e'} fontFamily={colorSet.fontFamily ?? 'Georgia'} fonts={systemFonts} change={(textColor, fontFamily) => editFrameSet({ ...colorSet, textColor, fontFamily })} />
         </>}
-        {!sharedFrame && !!presets.length && <label>{t('applyPreset')}<select value="" onChange={event => {
+        {!sharedFrame && !!presets.length && <label>{t('applyPreset')}<Select value="" onChange={event => {
           const preset = presets.find(item => item.id === event.target.value);
           if (preset) update({ frame: { kind: 'custom', asset: preset.asset, zones: preset.zones,
             textColor: preset.textColor, fontFamily: preset.fontFamily } });
         }}><option value="">{t('chooseFrame')}</option>
           {presets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-        </select></label>}
+        </Select></label>}
         {!sharedFrame && custom && <>
           <fieldset className="template-settings">
             <legend>{t('text')}</legend>

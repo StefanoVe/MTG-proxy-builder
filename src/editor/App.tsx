@@ -1,3 +1,5 @@
+import { Dropdown } from './Dropdown.js';
+import { Select } from './Select.js';
 import type { Locale, MessageKey } from '../shared/i18n.js';
 import { errorMessage, LocalizedError } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
@@ -488,18 +490,18 @@ export function App() {
       <button className={`icon-button${card ? '' : ' primary'}`} aria-label={searching ? t('searching') : t('searchCard')} title={t('searchShortcut')} disabled={!query.trim() || busy}><Icon name="search" /></button>
     </form>
     {searchFeedback && <p className="search-feedback" role="status">{errorMessage(searchFeedback, locale)}</p>}
-    {choices.length > 0 && <div className="results" aria-label={t('searchResults')}>
+    {choices.length > 0 && <Dropdown className="results" aria-label={t('searchResults')}>
       {choices.map(printing => <button key={printing.id} disabled={busy} onClick={() => void lookup(printing)}>
         <strong>{printing.name}</strong><small>{printing.setName}</small>
       </button>)}
-    </div>}
+    </Dropdown>}
   </div>;
 
   return <div className="workspace">
     <header className="toolbar">
       <div className="brand"><i aria-hidden="true" /><span>MTG Proxy Builder</span></div>
       <div className="project-tools">
-        <select aria-label={t('openProject')} disabled={busy || saving} value={project.id} onChange={event => {
+        <Select aria-label={t('openProject')} disabled={busy || saving} value={project.id} onChange={event => {
           const id = event.target.value;
           if (id === 'new') { const next = createProject(t('untitledDeck')); showProject(next); persist(next); return; }
           void action(async () => { showProject(await window.proxy.open(id)); });
@@ -507,15 +509,15 @@ export function App() {
           {!projects.some(item => item.id === project.id) && <option value={project.id}>{project.name}</option>}
           {projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
           <option value="new">{t('newProject')}</option>
-        </select>
+        </Select>
         <button className="icon-button" aria-label={t('undoLast')} title={t('undoShortcut')} disabled={!history.length || busy} onClick={undo}><Icon name="undo" /></button>
       </div>
       <div className="output-tools">
-        <select className="language-select" aria-label={t('language')} title={t('language')}
+        <Select className="language-select" aria-label={t('language')} title={t('language')}
           value={locale} disabled={busy} onChange={event => setLocale(event.target.value as Locale)}>
           <option value="it" lang="it">Italiano</option>
           <option value="en" lang="en">English</option>
-        </select>
+        </Select>
         <button className="icon-label" disabled={busy} onClick={() => {
           const frame = sharedFrame ?? renderedCard?.frame;
           editTemplate(frame?.kind === 'template' ? frame.template : 'full-art');

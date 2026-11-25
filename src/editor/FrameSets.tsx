@@ -1,3 +1,4 @@
+import { Select } from './Select.js';
 import { errorMessage } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
 import { useState } from 'react';
@@ -61,10 +62,10 @@ export function FrameSets({ sets, active, count, save }: {
   }
 
   return <form className="frame-set-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
-    {sets.length > 0 && <label>{t('frameSets')}<select value={id} disabled={busy} onChange={event => choose(event.target.value)}>
+    {sets.length > 0 && <label>{t('frameSets')}<Select value={id} disabled={busy} onChange={event => choose(event.target.value)}>
       <option value="">{t('newSet')}</option>
       {sets.map(set => <option key={set.id} value={set.id}>{set.name}</option>)}
-    </select></label>}
+    </Select></label>}
     <label>{t('setName')}<input value={name} maxLength={100} disabled={busy} onChange={event => setName(event.target.value)} /></label>
     <p className="muted">{t('setPngHelp')}</p>
     <div className="frame-set-grid">

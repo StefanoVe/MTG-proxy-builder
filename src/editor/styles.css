@@ -535,3 +535,23 @@ button, input:not([type="range"], [type="checkbox"]), select, textarea { border-
   .template-preview-card { height: min(42vh, 320px); }
   .template-controls-body { overflow: visible; }
 }
+
+.select-control { position: relative; min-width: 0; width: 100%; }
+.select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-width: 0; background: #080808; text-align: left; font-weight: 400; }
+.select-trigger > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-arrow { flex: none; color: var(--muted); }
+.select-menu { position: absolute; z-index: 1000; overflow: auto; padding: 4px; border: 1px solid #555; border-radius: 5px; background: #111; box-shadow: 0 5px 16px #000a; }
+.select-menu [role="option"] { display: block; width: 100%; min-height: 32px; padding: 5px 8px; border: 0; text-align: left; font-weight: 400; }
+.select-menu [role="option"][data-active="true"], .select-menu [role="option"][aria-selected="true"] { background: #303030; }
+.select-group { padding: 7px 8px 3px; color: var(--muted); font-size: 12px; }
+.project-tools .select-control { max-width: 252px; }
+.output-tools .language-select { width: auto; }
+.font-picker { position: relative; }
+.font-picker-results { position: absolute; z-index: 10; top: 100%; left: 0; right: 0; box-shadow: 0 5px 16px #000a; }
+
+.catalog-search { position: relative; }
+.catalog-search .results { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; padding: 4px; border: 1px solid #555; border-radius: 5px; background: #111; box-shadow: 0 5px 16px #000a; }
+
+.dropdown { position: absolute; z-index: 20; overflow: auto; border: 1px solid #555; border-radius: 5px; background: #111; box-shadow: 0 5px 16px #000a; }
+
+.select-menu { z-index: 1000; }

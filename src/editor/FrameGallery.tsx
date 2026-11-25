@@ -1,3 +1,4 @@
+import { Select } from './Select.js';
 import type { MessageKey } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
 import { useState } from 'react';
@@ -23,13 +24,13 @@ export function FrameGallery({ editions, active, pending, hasArt, select }: {
   if (!editions.length) return pending ? <p role="status">{t('loadingFrames')}</p> : null;
   return <>
     <div className="gallery-filters">
-      <label>{t('frameStyle')}<select value={style} onChange={event => {
+      <label>{t('frameStyle')}<Select value={style} onChange={event => {
         setStyle(event.target.value as typeof style);
         setPage(0);
       }}>
         <option value="">{t('allStyles')}</option>
         {available.map(style => <option key={style} value={style}>{t(names[style])}</option>)}
-      </select></label>
+      </Select></label>
       {hasArt && <label className="check"><input type="checkbox" checked={keepArt} onChange={event => setKeepArt(event.target.checked)} />{t('keepArtwork')}</label>}
     </div>
     {frames.length > pageSize && <div className="pager">

@@ -1,3 +1,4 @@
+import { Select } from './Select.js';
 import { isTemplate, templateNames } from '../shared/model.js';
 import type { Project } from '../shared/model.js';
 import { useI18n } from './i18n.js';
@@ -11,7 +12,7 @@ export function ProjectFrameSelect({ project, disabled, change, importFrame }: {
   const value = frame?.kind === 'template' ? frame.template
     : frame?.kind === 'color-set' || frame?.kind === 'preset' ? `${frame.kind}/${frame.id}` : frame?.kind ?? '';
 
-  return <label>{t('projectFrame')}<select value={value} disabled={disabled} onChange={event => {
+  return <label>{t('projectFrame')}<Select value={value} disabled={disabled} onChange={event => {
     const next = event.target.value;
     if (!next) change(undefined);
     else if (next === 'modern' || next === 'classic') change({ kind: next, tone: 'auto' });
@@ -35,5 +36,5 @@ export function ProjectFrameSelect({ project, disabled, change, importFrame }: {
     </optgroup>}
     {frame?.kind === 'custom' && <option value="custom">{t('projectCustomFrame')}</option>}
     <option value="import">{t('importProjectFrame')}</option>
-  </select></label>;
+  </Select></label>;
 }

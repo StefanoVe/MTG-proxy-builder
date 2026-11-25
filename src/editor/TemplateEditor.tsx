@@ -1,3 +1,4 @@
+import { Select } from './Select.js';
 import { errorMessage } from '../shared/i18n.js';
 import type { MessageKey } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
@@ -131,14 +132,14 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
     <div className="template-workspace" aria-describedby={helpId}>
       <section className="template-preview" aria-label={t('livePreview')}>
         <div className="template-preview-options">
-          <label>{t('preview')}<select value={previewSource?.id ?? ''} onChange={event => setPreviewId(event.target.value)}>
+          <label>{t('preview')}<Select value={previewSource?.id ?? ''} onChange={event => setPreviewId(event.target.value)}>
             <option value="">{t('sampleCard')}</option>
             {cards.filter(card => card.source.editable).map(card =>
               <option key={card.id} value={card.id}>{card.fields.name}{card.source.set && ' · ' + card.source.set.toUpperCase()}</option>)}
-          </select></label>
-          {!previewSource && <label>{t('sampleColor')}<select value={sampleColor} onChange={event => setSampleColor(event.target.value as FrameColor)}>
+          </Select></label>
+          {!previewSource && <label>{t('sampleColor')}<Select value={sampleColor} onChange={event => setSampleColor(event.target.value as FrameColor)}>
             {frameColors.map(color => <option key={color} value={color}>{t(frameColorNames[color])}</option>)}
-          </select></label>}
+          </Select></label>}
         </div>
         <div className="template-preview-card">
           <Preview card={preview} showThirds hideWarning={!previewSource} guide={guide} zone={section === 'layout' ? zone : undefined}
@@ -172,10 +173,10 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
                   const { max, defaultHeight } = templateEffectLimits(template, effect);
                   return <fieldset key={effect} className="template-settings">
                     <legend>{t(effect)}</legend>
-                    <label>{t(`${effect}Anchor`)}<select value={anchor} onChange={event =>
+                    <label>{t(`${effect}Anchor`)}<Select value={anchor} onChange={event =>
                       patch({ [effect]: { ...settings, anchor: event.target.value as TemplateEffect['anchor'] } })}>
                       {Object.entries(effectAnchors).map(([value, name]) => <option key={value} value={value}>{t(name)}</option>)}
-                    </select></label>
+                    </Select></label>
                     {anchor === 'manual' && <Slider label={t(`${effect}Height`)} value={Math.min(settings?.height ?? defaultHeight, max)}
                       max={max} step={0.1} unit="%" change={height => patch({ [effect]: { anchor, height } })} />}
                     <Slider label={t(`${effect}Shade`)} value={Math.round(appearance[shade] * 100)} max={100} unit="%" change={value => patch({ [shade]: value / 100 })} />
@@ -199,14 +200,14 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
               <Slider label={t('dividerLength')} value={appearance.dividerLength ?? 100} min={5} max={100} unit="%" change={dividerLength => patch({ dividerLength })} />
               <Slider label={t('dividerWeight')} value={appearance.dividerWeight ?? 2} min={1} max={12} unit=" px" change={dividerWeight => patch({ dividerWeight })} />
               <Slider label={t('dividerPadding')} value={appearance.dividerPadding ?? 6} max={100} unit=" px" change={dividerPadding => patch({ dividerPadding })} />
-              <label>{t('alignment')}<select value={appearance.dividerAlign ?? 'center'} onChange={event =>
+              <label>{t('alignment')}<Select value={appearance.dividerAlign ?? 'center'} onChange={event =>
                 patch({ dividerAlign: event.target.value as TemplateAppearance['dividerAlign'] })}>
                 <option value="left">{t('left')}</option><option value="center">{t('center')}</option><option value="right">{t('right')}</option>
-              </select></label>
-              <label>{t('stroke')}<select value={appearance.dividerStyle ?? 'solid'} onChange={event =>
+              </Select></label>
+              <label>{t('stroke')}<Select value={appearance.dividerStyle ?? 'solid'} onChange={event =>
                 patch({ dividerStyle: event.target.value as TemplateAppearance['dividerStyle'] })}>
                 <option value="solid">{t('solid')}</option><option value="fade">{t('fadedEnds')}</option><option value="dashed">{t('dashed')}</option>
-              </select></label>
+              </Select></label>
             </div>
           </fieldset>}
 
@@ -254,13 +255,13 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
             {decoration && <fieldset className="template-settings">
               <legend>{t('editLayer')}</legend>
               <div className="template-control-grid">
-                <label>{t('decorationColor')}<select value={decoration.tint} onChange={event => editDecoration({ tint: event.target.value as FrameDecoration['tint'] })}>
+                <label>{t('decorationColor')}<Select value={decoration.tint} onChange={event => editDecoration({ tint: event.target.value as FrameDecoration['tint'] })}>
                   <option value="original">{t('original')}</option><option value="card">{t('cardColor')}</option>
                   <option value="text">{t('sameAsText')}</option><option value="custom">{t('custom')}</option>
-                </select></label>
-                <label>{t('fit')}<select value={decoration.fit} onChange={event => editDecoration({ fit: event.target.value as FrameDecoration['fit'] })}>
+                </Select></label>
+                <label>{t('fit')}<Select value={decoration.fit} onChange={event => editDecoration({ fit: event.target.value as FrameDecoration['fit'] })}>
                   <option value="contain">{t('keepAspectRatio')}</option><option value="stretch">{t('fillArea')}</option>
-                </select></label>
+                </Select></label>
               </div>
               {decoration.tint === 'custom' && <ColorControl label={t('decorationTint')} value={decoration.color} change={color => editDecoration({ color })} />}
               <Slider label={t('decorationOpacity')} value={Math.round(decoration.opacity * 100)} max={100} unit="%" change={value => editDecoration({ opacity: value / 100 })} />
@@ -271,11 +272,11 @@ export function TemplateEditor({ template, selectTemplate, appearance, activeCar
 
           {section === 'layout' && <fieldset className="template-settings">
             <legend>{t('positionSize')}</legend>
-            <label>{t('zoneToEdit')}<select value={zone ?? ''} onChange={event =>
+            <label>{t('zoneToEdit')}<Select value={zone ?? ''} onChange={event =>
               setZone((event.target.value || undefined) as keyof Zones | undefined)}>
               <option value="">{t('selectZone')}</option>
               {Object.entries(zoneLabels).map(([key, label]) => <option key={key} value={key}>{t(label)}</option>)}
-            </select></label>
+            </Select></label>
             {zone && <>
               <ZoneFields rect={appearance.zones[zone]} update={updateZone} />
               <p className="muted">{t('resizeZoneHelp')}</p>

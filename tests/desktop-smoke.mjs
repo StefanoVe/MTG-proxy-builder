@@ -20,8 +20,12 @@ let electron = await launch();
 try {
   let page = await electron.firstWindow();
   page.on('pageerror', error => console.error('Page error:', error));
-  const language = page.locator('.language-select');
-  await language.selectOption('en');
+  const choose = async (control, value) => {
+    await control.click();
+    await page.locator(`.select-menu [role=option][data-value=${JSON.stringify(value)}]`).click();
+  };
+  const language = page.locator('.language-select .select-trigger');
+  await choose(language, 'en');
   await page.getByRole('heading', { name: 'Find a card' }).waitFor({ timeout: 10000 });
   await page.getByRole('button', { name: 'Import decklist' }).click();
   const decklist = page.getByRole('textbox', { name: 'Decklist', exact: true });
@@ -33,8 +37,8 @@ try {
   await page.reload();
   await page.getByRole('heading', { name: 'Find a card' }).waitFor();
   assert.equal(await page.locator('html').getAttribute('lang'), 'en');
-  assert.equal(await language.inputValue(), 'en');
-  await language.selectOption('it');
+  assert.equal(await language.getAttribute('data-value'), 'en');
+  await choose(language, 'it');
   await page.getByRole('heading', { name: 'Cerca una carta' }).waitFor({ timeout: 10000 });
   assert.equal(await page.locator('html').getAttribute('lang'), 'it');
   await page.screenshot({ path: join(paths, 'empty.png') });
@@ -80,7 +84,7 @@ try {
       image_uris: { art: 'https://cards.scryfall.io/art/demo.webp', display: 'https://cards.scryfall.io/display/demo.webp' },
       prints_search_uri: 'https://api.scryfall.com/cards/search?q=bolt' };
     const second = { ...exact, id: 'd0000000-0000-4000-8000-000000000001', set: 'm11', set_name: 'Magic 2011', collector_number: '149' };
-    const cardFaces = ['Sole', 'Luna'].map(name => ({ name, image_uris: { display: 'https://cards.scryfall.io/display/demo.webp' } }));
+    const cardFaces = ['Sole', 'Luna'].map(name => ({ name, image_uris: { art: 'https://cards.scryfall.io/art/demo.webp', display: 'https://cards.scryfall.io/display/demo.webp' } }));
     const double = { ...exact, id: 'd0000000-0000-4000-8000-000000000002', name: 'Sole // Luna', layout: 'transform',
       collector_number: '5', image_uris: undefined, card_faces: cardFaces };
     globalThis.fetch = async (url, init) => {
@@ -118,8 +122,8 @@ try {
   await page.getByLabel('Testo della carta').fill('Pesca una carta.');
   await page.getByRole('button', { name: 'Cornice', exact: true }).click();
   const template = page.getByLabel(/^Template/);
-  assert.equal(await template.inputValue(), 'full-art');
-  await template.selectOption('extended-art');
+  assert.equal(await template.getAttribute('data-value'), 'full-art');
+  await choose(template, 'extended-art');
   await page.getByRole('button', { name: 'Carta', exact: true }).click();
   assert.equal(await page.getByLabel('Testo della carta').inputValue(), 'Pesca una carta.');
   await page.locator('.source').getByText('Magic 2011').waitFor();
@@ -136,17 +140,17 @@ try {
   await page.getByText('Set salvato e applicato').waitFor();
   await page.getByText('Cornice applicata · Rosso').waitFor();
   const projectFrame = page.locator('.deck').getByLabel('Cornice del progetto');
-  await projectFrame.selectOption('import');
-  await page.waitForFunction(() => document.querySelector('.deck-controls select')?.value === 'custom');
+  await choose(projectFrame, 'import');
+  await page.waitForFunction(() => document.querySelector('.deck-controls .select-trigger')?.dataset.value === 'custom');
   await page.getByText('Questa carta usa la cornice del progetto.', { exact: false }).waitFor();
-  await projectFrame.selectOption('');
+  await choose(projectFrame, '');
   await page.getByText('Cornice applicata · Rosso').waitFor();
-  await projectFrame.selectOption('full-art');
+  await choose(projectFrame, 'full-art');
   await page.getByRole('button', { name: 'Importa lista', exact: true }).click();
   await page.getByLabel('Lista delle carte').fill('99 Sole // Luna\n1 Non esiste');
   await page.getByRole('button', { name: 'Importa carte' }).click();
   await page.getByText('Carta o edizione non trovata · Non esiste').waitFor();
-  await page.getByRole('button', { name: 'Chiudi' }).click();
+  await page.getByRole('button', { name: 'Chiudi', exact: true }).click();
   await page.locator('.deck-list').getByRole('button', { name: /Lightning Bolt/ }).click();
   await electron.evaluate(() => globalThis.setSmokeFiles('art'));
   await page.getByRole('button', { name: 'Modifica in blocco' }).click();
@@ -155,20 +159,20 @@ try {
   await page.getByText('Modificata 1 carta').waitFor();
   await page.getByRole('button', { name: 'Annulla ultima modifica' }).click();
   await page.getByText('Modifica annullata').waitFor();
-  assert.equal(await projectFrame.inputValue(), 'full-art');
+  assert.equal(await projectFrame.getAttribute('data-value'), 'full-art');
   await page.getByRole('button', { name: 'Stampa', exact: true }).click();
   await page.screenshot({ path: join(paths, 'print-choices.png') });
   await page.getByRole('button', { name: 'Carte singole' }).click();
-  await page.getByLabel('Abbondanza (bleed)').selectOption('mpc');
+  await choose(page.getByLabel('Abbondanza (bleed)'), 'mpc');
   await page.getByText('816 × 1111 px · 3 immagini').waitFor();
-  await page.getByRole('img', { name: 'Sole // Luna · Retro' }).waitFor();
+  await page.getByRole('img', { name: 'Sole · Retro' }).waitFor();
   await page.waitForFunction(() => document.querySelector('.card-export-grid canvas')?.width > 1);
   await page.screenshot({ path: join(paths, 'card-export.png') });
   await page.getByRole('button', { name: 'Salva ZIP' }).click();
   await page.getByText('ZIP salvato').waitFor({ timeout: 30000 });
   const images = unzipSync(await readFile(zipPath));
   assert.deepEqual(Object.keys(images).sort(), [
-    'fronte/0001-Lightning Bolt.png', 'fronte/0002-Sole -- Luna.png', 'retro/0002-Sole -- Luna.png'
+    'fronte/0001-Lightning Bolt.png', 'fronte/0002-Sole.png', 'retro/0002-Sole.png'
   ]);
   for (const image of Object.values(images).map(bytes => Buffer.from(bytes))) {
     assert.equal(image.readUInt32BE(16), 816);
@@ -191,7 +195,7 @@ try {
   electron = await launch();
   page = await electron.firstWindow();
   await page.getByRole('heading', { name: 'Lightning Bolt', exact: true }).waitFor();
-  assert.equal(await page.locator('.deck').getByLabel('Cornice del progetto').inputValue(), 'full-art');
+  assert.equal(await page.locator('.deck').getByLabel('Cornice del progetto').getAttribute('data-value'), 'full-art');
   await page.waitForFunction(() => document.querySelector('canvas')?.width === 744);
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
   await page.getByRole('button', { name: 'Foglio di stampa' }).click();

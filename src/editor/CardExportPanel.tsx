@@ -1,3 +1,4 @@
+import { Select } from './Select.js';
 import { errorMessage, LocalizedError } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -119,30 +120,30 @@ export function CardExportPanel({ project, onBusy, onExport }: {
     <div className="card-export">
       <div className="card-export-options">
         <fieldset disabled={working} className="print-options">
-          <label>{t('bleed')}<select value={bleed} onChange={event => setBleed(event.target.value as Bleed)}>
+          <label>{t('bleed')}<Select value={bleed} onChange={event => setBleed(event.target.value as Bleed)}>
             <option value="none">{t('none')}</option>
             <option value="mpc">MakePlayingCards · 63 × 88 mm</option>
             <option value="custom">{t('customBleed')}</option>
-          </select></label>
+          </Select></label>
           {bleed === 'mpc' && <small>{t('mpcBleed')}</small>}
           {bleed === 'custom' && <label>{t('bleedPerSide')}<input type="number" min="0" max="10" step="0.1" value={customMm}
             onChange={event => setCustomMm(event.target.value)} /></label>}
           {bleed !== 'none' && <>
-            <label>{t('fill')}<select value={fill} onChange={event => setFill(event.target.value as BleedFill)}>
+            <label>{t('fill')}<Select value={fill} onChange={event => setFill(event.target.value as BleedFill)}>
               <option value="mirror">{t('mirrorEdges')}</option>
               <option value="solid">{t('solidColor')}</option>
-            </select></label>
+            </Select></label>
             {fill === 'solid' && <label className="bleed-color">{t('bleedColor')}<input type="color" value={color}
               onChange={event => setColor(event.target.value)} /></label>}
             <label className="check"><input type="checkbox" checked={guides} onChange={event => setGuides(event.target.checked)} />{t('showTrimGuide')}</label>
           </>}
           <div className="form-row">
-            <label>{t('format')}<select value={format} onChange={event => setFormat(event.target.value as ImageFormat)}>
+            <label>{t('format')}<Select value={format} onChange={event => setFormat(event.target.value as ImageFormat)}>
               <option value="png">PNG</option><option value="jpg">JPG</option>
-            </select></label>
-            <label>{t('resolution')}<select value={dpi} onChange={event => setDpi(Number(event.target.value))}>
+            </Select></label>
+            <label>{t('resolution')}<Select value={dpi} onChange={event => setDpi(Number(event.target.value))}>
               <option value="300">300 DPI</option><option value="600">600 DPI</option>
-            </select></label>
+            </Select></label>
           </div>
           {format === 'jpg' && <label>{t('jpgQuality', { value: quality })}<input type="range" min="60" max="100" value={quality}
             onChange={event => setQuality(Number(event.target.value))} /></label>}

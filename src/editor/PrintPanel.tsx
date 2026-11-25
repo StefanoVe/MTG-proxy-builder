@@ -1,3 +1,4 @@
+import { Select } from './Select.js';
 import { errorMessage } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
 import { useMemo, useState } from 'react';
@@ -44,20 +45,20 @@ export function PrintPanel({ project, onExport, onBusy }: { project: Project; on
   return <>
     <div className="print-panel">
       <div className="print-options">
-        <label>{t('paper')}<select disabled={working} value={settings.paper} onChange={event => setSettings({ ...settings, paper: event.target.value as PrintSettings['paper'] })}>
+        <label>{t('paper')}<Select disabled={working} value={settings.paper} onChange={event => setSettings({ ...settings, paper: event.target.value as PrintSettings['paper'] })}>
           <option>A4</option><option>Letter</option>
-        </select></label>
-        <label>{t('bleed')}<select disabled={working} value={settings.bleed ?? 'none'} onChange={event => { setIndex(0); setSettings({ ...settings, bleed: event.target.value as NonNullable<PrintSettings['bleed']> }); }}>
+        </Select></label>
+        <label>{t('bleed')}<Select disabled={working} value={settings.bleed ?? 'none'} onChange={event => { setIndex(0); setSettings({ ...settings, bleed: event.target.value as NonNullable<PrintSettings['bleed']> }); }}>
           <option value="none">{t('none')}</option><option value="mpc">MakePlayingCards · 63 × 88 mm</option><option value="custom">{t('customBleed')}</option>
-        </select></label>
+        </Select></label>
         {settings.bleed === 'mpc' && <small>{t('mpcBleed')}</small>}
         {settings.bleed === 'custom' && <label>{t('bleedPerSide')}<input type="number" min="0" max="10" step="0.1" disabled={working} value={customMm} onChange={event => {
           setCustomMm(event.target.value); const value = Number(event.target.value); if (event.target.value !== '' && Number.isFinite(value) && value >= 0 && value <= 10) { setIndex(0); setSettings({ ...settings, customMm: value }); }
         }} /></label>}
         {settings.bleed && settings.bleed !== 'none' && <>
-          <label>{t('fill')}<select disabled={working} value={settings.fill ?? 'mirror'} onChange={event => setSettings({ ...settings, fill: event.target.value as NonNullable<PrintSettings['fill']> })}>
+          <label>{t('fill')}<Select disabled={working} value={settings.fill ?? 'mirror'} onChange={event => setSettings({ ...settings, fill: event.target.value as NonNullable<PrintSettings['fill']> })}>
             <option value="mirror">{t('mirrorEdges')}</option><option value="solid">{t('solidColor')}</option>
-          </select></label>
+          </Select></label>
           {settings.fill === 'solid' && <label className="bleed-color">{t('bleedColor')}<input type="color" disabled={working} value={settings.color ?? '#000000'} onChange={event => setSettings({ ...settings, color: event.target.value })} /></label>}
         </>}
         {!valid && <p className="error" role="alert">{t('bleedRange')}</p>}

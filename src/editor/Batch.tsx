@@ -1,3 +1,4 @@
+import { Select } from './Select.js';
 import { errorMessage } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
 import { newTemplate } from '../shared/templates.js';
@@ -66,19 +67,19 @@ export function Batch({ cards, sharedFrame, presets, frameSets, fullArtBase, app
   return <>
     <p className="muted">{t(eligible.length === 1 ? 'eligibleCardsOne' : 'eligibleCards', { count: eligible.length, total: cards.length })}</p>
     <div className="form-row batch-options">
-      <label>{t('apply')}<select value={kind} disabled={loading} onChange={event => {
+      <label>{t('apply')}<Select value={kind} disabled={loading} onChange={event => {
         setKind(event.target.value as typeof kind); setRows([]); setErrors([]);
       }}>
         <option value="art">{t('matchArtByName')}</option>
         {!sharedFrame && <option value="preset">{t('oneFrameForAll')}</option>}
-      </select></label>
+      </Select></label>
       {kind !== 'preset' && <div className="button-group">
         <button disabled={loading} onClick={() => void load('files')}>{t('chooseFiles')}</button>
         <button disabled={loading} onClick={() => void load('folder')}>{t('chooseFolder')}</button>
       </div>}
     </div>
     {kind === 'preset' ? <>
-      <label>{t('templatePresetSet')}<select value={preset} onChange={event => setPreset(event.target.value)}>
+      <label>{t('templatePresetSet')}<Select value={preset} onChange={event => setPreset(event.target.value)}>
         <option value="">{t('chooseAFrame')}</option>
         {(Object.keys(templateNames)).filter(isTemplate).map(template =>
           <option key={template} value={template}>{t(templateNames[template])}</option>)}
@@ -86,7 +87,7 @@ export function Batch({ cards, sharedFrame, presets, frameSets, fullArtBase, app
           {frameSets.map(set => <option value={set.id} key={set.id}>{set.name}</option>)}
         </optgroup>}
         {presets.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}
-      </select></label>
+      </Select></label>
       <label className="check"><input type="checkbox" checked={overwrite} onChange={event => setOverwrite(event.target.checked)} />{t('replaceEditedFrames')}</label>
     </> : <>
       {loading && <p role="status">{t('readingImages')}</p>}
@@ -102,10 +103,10 @@ export function Batch({ cards, sharedFrame, presets, frameSets, fullArtBase, app
           return <div className="batch-row" key={index}>
             <img src={assetURL(row.asset.id)} alt="" />
             <span className="filename" title={row.asset.name}>{row.asset.name}</span>
-            <select aria-label={t('cardForFile', { name: row.asset.name })} value={row.cardId} onChange={event => update(index, { cardId: event.target.value, accept: false })}>
+            <Select aria-label={t('cardForFile', { name: row.asset.name })} value={row.cardId} onChange={event => update(index, { cardId: event.target.value, accept: false })}>
               <option value="">{t('unmatched')}</option>
               {eligible.map(item => <option key={item.id} value={item.id}>{item.fields.name}{item.source.set ? ` (${item.source.set.toUpperCase()} ${item.source.number})` : ''}</option>)}
-            </select>
+            </Select>
             <label className="check"><input type="checkbox" disabled={!card} checked={row.accept} onChange={event => update(index, { accept: event.target.checked })} />
               {card && hasOverride(card, 'art') ? t('replace') : t('apply')}
             </label>
