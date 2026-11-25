@@ -21,8 +21,8 @@ Gli installer delle release automatiche sono distribuiti senza firma di distribu
 Scegli **Italiano** o **English** nella barra superiore. Al primo avvio l’app usa la lingua di sistema se supportata, altrimenti l’inglese. La scelta viene ricordata ai successivi avvii.
 
 1. **Importa il mazzo.** Cerca una carta su Scryfall oppure incolla una lista. Puoi indicare quantità, set e numero di collezione, per esempio `2 Lightning Bolt (2X2) 117`. I progetti e le immagini già acquisite sono salvati in locale.
-2. **Personalizza le carte.** Seleziona un’edizione, modifica il testo o trascina un PNG, JPEG o WebP sull’anteprima. Regola ritaglio e zoom dalla scheda **Illustrazione**. Il primo edit del testo di una scansione originale attiva il template Full art.
-3. **Scegli la cornice.** Sfoglia le edizioni o usa Full art e Illustrazione estesa. Da **Cornice → Personalizza template** puoi spostare e ridimensionare le zone, modificare colori e ombre, importare un overlay PNG e salvare la configurazione come base del progetto.
+2. **Personalizza le carte.** Seleziona un’edizione, modifica il testo o trascina un PNG, JPEG o WebP sull’anteprima. Regola ritaglio e zoom dalla scheda **Illustrazione**. Il primo cambio di testo o allineamento di una scansione originale applica la **Cornice alla prima modifica** del progetto, che parte da Full art.
+3. **Scegli la cornice.** Sfoglia le edizioni o usa Full art e Illustrazione estesa. Da **Editor cornici** puoi spostare e ridimensionare le zone, regolare ombre e sfocature progressive, importare decorazioni e salvare la configurazione nel progetto.
 4. **Applica modifiche in blocco.** Abbina le immagini ai nomi delle carte, per esempio `Lightning Bolt.jpg`, e scegli come gestire duplicati e modifiche esistenti. Puoi applicare preset o set di cornici a tutta la selezione.
 5. **Esporta.** Scegli **Foglio di stampa** per un PDF A4 o Letter, oppure **Carte singole** per salvare PNG o JPG in uno ZIP con risoluzione, abbondanza (bleed), retro e copie configurabili.
 

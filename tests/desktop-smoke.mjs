@@ -203,11 +203,32 @@ try {
   await zoneX.waitFor();
   await choose(cardAlignment, '');
   await choose(template, 'printing');
+  const firstEditFrame = page.locator('.deck').getByLabel('Cornice alla prima modifica');
+  assert.equal(await firstEditFrame.getAttribute('data-value'), 'full-art');
+  await choose(firstEditFrame, 'extended-art');
+  await choose(frameElement, 'rules');
+  await inspector.getByText('Se cambi l’allineamento del testo, l’editor applica il template Illustrazione estesa.').waitFor();
+  await choose(cardAlignment, 'right');
+  assert.equal(await template.getAttribute('data-value'), 'extended-art');
+  await choose(cardAlignment, '');
+  await choose(template, 'printing');
   await cardTab.click();
+  await inspector.getByText('Quando modifichi i dati della stampa originale, l’editor applica il template Illustrazione estesa.').waitFor();
   await cardText.fill('Pesca una carta.');
   await frameTab.click();
-  assert.equal(await template.getAttribute('data-value'), 'full-art');
-  await choose(template, 'extended-art');
+  assert.equal(await template.getAttribute('data-value'), 'extended-art');
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    const saved = await window.proxy.open(project.id);
+    return saved.printingEditTemplate === 'extended-art' && saved.cards[0].frame.template === 'extended-art';
+  });
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector('.stage canvas');
+    if (canvas?.width !== 744) return false;
+    const context = canvas.getContext('2d');
+    const red = y => context.getImageData(0, y, 1, 1).data[0];
+    return red(0) < red(100) && red(100) < red(300);
+  });
   await page.getByRole('button', { name: 'Carta', exact: true }).click();
   assert.equal(await cardText.inputValue(), 'Pesca una carta.');
   await page.locator('.source').getByText('Magic 2011').waitFor();

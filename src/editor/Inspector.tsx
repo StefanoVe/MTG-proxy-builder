@@ -6,6 +6,7 @@ import { cardFrameColors } from './card-colors.js';
 import { cardZones } from './card-zones.js';
 import { colorsForFrame } from '../shared/frame-colors.js';
 import { frameAppearance, newTemplate, presetFrame } from '../shared/templates.js';
+import type { TemplateFrame } from '../shared/templates.js';
 import { useState } from 'react';
 import { detectedArtZone } from './compose.js';
 import { cardArtZone, defaultCrop, frameColorNames, frameTextAreas, isTemplate, printingFields, templateNames } from '../shared/model.js';
@@ -100,7 +101,7 @@ function EditionDetails({ card }: { card: Card }) {
   </div>;
 }
 
-export function Inspector({ card, renderedCard, back, sharedFrame, presets, update, resetCard, selectAssets, choosePrinting, zone, selectZone, savePreset, fullArtBase, frameSets, editCustomFrame, copyFrame, pasteFrame, mirror }: {
+export function Inspector({ card, renderedCard, back, sharedFrame, presets, update, resetCard, selectAssets, choosePrinting, zone, selectZone, savePreset, fullArtBase, printingEditFrame, frameSets, editCustomFrame, copyFrame, pasteFrame, mirror }: {
   card: Card; renderedCard: Card; back: boolean; sharedFrame: boolean; presets: Preset[]; update: (patch: Partial<Card>) => void;
   resetCard: () => void;
   selectAssets: (frame: boolean) => Promise<Asset | undefined>;
@@ -110,6 +111,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
   copyFrame?: () => void; pasteFrame?: () => void;
   mirror?: { value: string; suspended: boolean; options: { value: string; label: string }[]; change: (value: string) => void };
   fullArtBase?: TemplateAppearance;
+  printingEditFrame: TemplateFrame;
 }) {
   const { t, locale } = useI18n();
   const [tab, setTab] = useState<'card' | 'art' | 'frame'>('card');
@@ -118,6 +120,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
   const custom = card.frame.kind === 'custom' ? card.frame : undefined;
   const colorSet = renderedCard.frame.kind === 'color-set' ? renderedCard.frame.set : undefined;
   const original = renderedCard.frame.kind === 'printing';
+  const printingTemplateName = t(templateNames[printingEditFrame.template]);
   const textArea = zone === 'art' ? undefined : zone;
   const layoutZone = original || zone === 'artist' ? undefined : zone;
   const mirrored = !!mirror?.value;
@@ -129,7 +132,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
     if (value === visibleFields[field]) return;
     const fields = { ...visibleFields, [field]: value };
     if (!mirrored && card.frame.kind === 'printing') {
-      update({ fields, frame: newTemplate('full-art', fullArtBase) });
+      update({ fields, frame: printingEditFrame });
       if (original) selectZone(undefined);
     } else {
       update({ fields });
@@ -145,7 +148,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
     else delete overrides[area];
     update({
       textAlignOverrides: Object.keys(overrides).length ? overrides : undefined,
-      ...(original && align ? { frame: newTemplate('full-art', fullArtBase) } : {})
+      ...(original && align ? { frame: printingEditFrame } : {})
     });
   }
 
@@ -189,7 +192,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
           <span><strong>{card.source.setName}</strong><small>{card.source.set.toUpperCase()} · {card.source.number}</small></span>
           <ToolButton icon="edition" label={t('printings')} onClick={choosePrinting} />
         </section>}
-        {original && !mirrored && <p className="muted">{t('printingEditHelp')}</p>}
+        {original && !mirrored && <p className="muted">{t('printingEditHelp', { template: printingTemplateName })}</p>}
         <label><FieldLabel icon="card">{t('name')}</FieldLabel><input value={visibleFields.name} maxLength={300} onChange={event => setField('name', event.target.value)} /></label>
         <label><FieldLabel icon="mana">{t('manaCost')}</FieldLabel><input value={visibleFields.mana} maxLength={100} placeholder="{1}{U}" onChange={event => setField('mana', event.target.value)} /></label>
         <label><FieldLabel icon="type">{t('type')}</FieldLabel><input value={visibleFields.type} maxLength={300} placeholder={t('instant')} onChange={event => setField('type', event.target.value)} /></label>
@@ -317,7 +320,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
               <option value="">{t('inheritFrameAlignment')}</option>
               <option value="left">{t('left')}</option><option value="center">{t('center')}</option><option value="right">{t('right')}</option>
             </Select></label>
-            {original && <p className="muted">{t('printingAlignmentHelp')}</p>}
+            {original && <p className="muted">{t('printingAlignmentHelp', { template: printingTemplateName })}</p>}
           </>}
         </div>
 

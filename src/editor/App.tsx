@@ -3,11 +3,11 @@ import { Select } from './Select.js';
 import type { Locale, MessageKey } from '../shared/i18n.js';
 import { errorMessage, LocalizedError } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
-import { clearInvalidFrameMirrors, customFrameAppearance, frameAppearance, frameMirrorFor, presetFrame, projectCards, projectFrame, projectFrameResolver, templateAppearance } from '../shared/templates.js';
+import { clearInvalidFrameMirrors, customFrameAppearance, frameAppearance, frameMirrorFor, newTemplate, presetFrame, projectCards, projectFrame, projectFrameResolver, templateAppearance } from '../shared/templates.js';
 import type { CustomFrame } from '../shared/templates.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { assetURL, blankCard, cardSide, createCard, createProject, defaultCrop, defaultZones, isCardModified, rebaseBackSide, sideFrameSettings, sideOrientation, sideState } from '../shared/model.js';
+import { assetURL, blankCard, cardSide, createCard, createProject, defaultCrop, defaultZones, isCardModified, isTemplate, rebaseBackSide, sideFrameSettings, sideOrientation, sideState, templateNames } from '../shared/model.js';
 import type { Card, DeckEntry, FrameSet, Printing, Project, Rect, Template, TemplateAppearance } from '../shared/model.js';
 import { matchesCardSearch, parseDeckRows } from '../shared/deck.js';
 import { cardsWithSharedArt } from '../shared/shared-art.js';
@@ -701,6 +701,15 @@ export function App() {
   });
   const mirrorLabelCounts = new Map<string, number>();
   for (const { label } of mirrorLabels) mirrorLabelCounts.set(label, (mirrorLabelCounts.get(label) ?? 0) + 1);
+  const fullArtBase = project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase;
+  const printingEditFrame = newTemplate(project.printingEditTemplate ?? 'full-art', fullArtBase);
+
+  function applyArtwork(assetId: string) {
+    if (!card || !selectedCard?.source.editable) return;
+    const convert = selectedCard.frame.kind === 'printing' && sideOrientation(card, back) === 'landscape';
+    updateSide(card.id, { art: assetId, crop: defaultCrop, ...(convert && { frame: printingEditFrame }) });
+  }
+
   const deckAddActions = <>
     <button className="icon-label" onClick={() => { setError(''); setDeckErrors([]); setDeckImported(0); setPanel('deck'); }} aria-label={t('importList')} disabled={busy}><Icon name="import" /><span>{t('importList')}</span></button>
     <button className="icon-label" onClick={() => addCards([createCard({ ...blankCard, name: t('untitledCard') })], !card)} aria-label={t('addBlankCard')} disabled={busy || project.cards.length >= 1500}><Icon name="add" /><span>{t('blankCard')}</span></button>
@@ -769,7 +778,7 @@ export function App() {
         <button className="icon-label frame-editor-button" aria-label={t('frameEditor')} title={t('frameEditor')} disabled={busy} onClick={() => {
           const frame = sharedFrame ?? renderedCard?.frame;
           if (frame?.kind === 'color-set' || frame?.kind === 'custom') manageFrameSets();
-          else editTemplate(frame?.kind === 'template' ? frame.template : 'full-art');
+          else editTemplate(frame?.kind === 'template' ? frame.template : printingEditFrame.template);
         }}>
           <Icon name="settings" /><span>{t('frameEditor')}</span>
         </button>
@@ -796,6 +805,13 @@ export function App() {
               if (name !== project.name) commit(value => ({ ...value, name }));
             }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
           <ProjectFrameSelect project={project} disabled={busy} change={changeProjectFrame} importFrame={importProjectFrame} />
+          <label>{t('printingEditTemplate')}<Select value={printingEditFrame.template} disabled={busy} onChange={event => {
+            const template = event.target.value;
+            if (isTemplate(template)) commit(value => ({ ...value, printingEditTemplate: template }));
+          }}>
+            {Object.keys(templateNames).filter(isTemplate).map(template =>
+              <option key={template} value={template}>{t(templateNames[template])}</option>)}
+          </Select></label>
           <div className="deck-add">{deckAddActions}</div>
         </div>
         {card && <div className="deck-catalog-search">{catalogSearch}</div>}
@@ -879,8 +895,7 @@ export function App() {
         void action(async () => {
           if (file.size > 32 * 1024 * 1024) throw new LocalizedError('imageSize');
           const asset = await window.proxy.dropped(new Uint8Array(await file.arrayBuffer()), file.name, false);
-          updateSide(card.id, { art: asset.id, crop: defaultCrop,
-            ...(selectedCard && selectedCard.frame.kind === 'printing' && sideOrientation(card, back) === 'landscape' ? { frame: { kind: 'template', template: 'full-art' } } : {}) });
+          applyArtwork(asset.id);
           if (renderedCard?.frame.kind === 'printing') setZone(undefined);
         });
       }}>
@@ -923,8 +938,7 @@ export function App() {
             <button disabled={busy} onClick={() => void loadPrintingImages(selectedRendered!)}>{t('retryArtworkDownload')}</button>
           </div>}
           {selectedCard?.source.editable && <button className={`image-dropzone${draggingImage ? ' dragging' : ''}`} disabled={busy} onClick={() => void selectAssets(false).then(image => {
-            if (image) updateSide(card.id, { art: image.id, crop: defaultCrop,
-              ...(selectedCard && selectedCard.frame.kind === 'printing' && sideOrientation(card, back) === 'landscape' ? { frame: { kind: 'template', template: 'full-art' } } : {}) });
+            if (image) applyArtwork(image.id);
           })}>{t(missingArtwork && !loadingImage ? 'chooseArtwork' : 'dropImage')}</button>}
           <div className="stage-meta">
             <span>63 × 88 mm</span>
@@ -968,7 +982,7 @@ export function App() {
         }}
         update={patch => updateSide(card.id, patch, true)}
         selectAssets={selectAssets} choosePrinting={() => choosePrinting('printings')} zone={mirror ? undefined : zone} selectZone={setZone}
-        fullArtBase={project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase}
+        fullArtBase={fullArtBase} printingEditFrame={printingEditFrame}
         savePreset={name => {
           if (selectedCard.frame.kind !== 'custom') return;
           const { asset, zones, textColor, fontFamily, appearance } = selectedCard.frame;
@@ -1049,7 +1063,7 @@ export function App() {
         </div>
       </>}
       {panel === 'batch' && <Batch cards={batchCards} selectionCount={selection.length} hiddenSelectionCount={hiddenSelectionCount}
-        sharedFrame={!!sharedFrame} presets={project.presets} fullArtBase={project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase} frameSets={project.frameSets ?? []} close={() => setPanel(undefined)} apply={updates => {
+        sharedFrame={!!sharedFrame} presets={project.presets} fullArtBase={fullArtBase} frameSets={project.frameSets ?? []} close={() => setPanel(undefined)} apply={updates => {
         const map = new Map(updates.map(item => [item.id, item]));
         commit(value => ({ ...value, cards: value.cards.map(item => map.get(item.id) ?? item) }));
         setNotice({ key: updates.length === 1 ? 'changedCardsOne' : 'changedCards', count: updates.length }); setPanel(undefined);

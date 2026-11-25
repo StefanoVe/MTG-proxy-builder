@@ -300,11 +300,11 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
     drawRect(ctx, illustration, '#343b3d', 0);
     if (art) artwork(ctx, art, illustration, card.crop);
   }
-  if (appearance) blurTemplateArt(ctx, template ?? 'full-art', appearance);
+  if (appearance) blurTemplateArt(ctx, appearance);
   if (overlay) ctx.drawImage(overlay, 0, 0, width, height);
   if (extraOverlay) ctx.drawImage(extraOverlay, 0, 0, width, height);
   if (appearance) {
-    shadeTemplate(ctx, template ?? 'full-art', appearance);
+    shadeTemplate(ctx, appearance);
     drawDecorations(ctx, decorations, cardColor, textColor);
     drawTemplateDividers(ctx, appearance, cardColor);
   }

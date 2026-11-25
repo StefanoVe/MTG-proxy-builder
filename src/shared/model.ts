@@ -143,6 +143,7 @@ export const projectSchema = z.object({
   version: z.literal(1), id: uuid, name: z.string().min(1).max(100),
   cards: z.array(cardSchema).max(1500), presets: z.array(presetSchema).max(200),
   frame: projectFrameSchema.optional(),
+  printingEditTemplate: templateSchema.optional(),
   fullArtBase: templateAppearanceSchema.optional(),
   templateAppearances: z.partialRecord(templateSchema, templateAppearanceSchema).optional(),
   frameSets: z.array(frameSetSchema).max(200).optional()

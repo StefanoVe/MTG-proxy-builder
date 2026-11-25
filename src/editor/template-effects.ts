@@ -1,5 +1,5 @@
 import { pixels } from '../shared/print.ts';
-import type { Rect, Template, TemplateAppearance } from '../shared/model.js';
+import type { Rect, TemplateAppearance } from '../shared/model.js';
 import { cardPaint } from './card-colors.ts';
 import type { CardPaint } from './card-colors.js';
 
@@ -9,65 +9,44 @@ export function templateBox(zone: Rect, w = width, h = height): Rect {
   return { x: zone.x * w / 100, y: zone.y * h / 100, w: zone.w * w / 100, h: zone.h * h / 100 };
 }
 
-const regions = {
-  topEffect: { panel: { x: 5, y: 4, w: 90, h: 7.4 }, radius: 9, fullArtHeight: 15 },
-  bottomEffect: { panel: { x: 5, y: 61.8, w: 90, h: 34 }, radius: 10, fullArtHeight: 48 }
-};
+export const templateEffectHeights = { topEffect: 15, bottomEffect: 48 };
+type Effect = keyof typeof templateEffectHeights;
+const blurSteps = 6;
 
-type Effect = keyof typeof regions;
-
-export function templateEffectLimits(template: Template, effect: Effect) {
-  const { panel, fullArtHeight } = regions[effect];
-  if (template === 'full-art') return { edge: effect === 'topEffect' ? 0 : 100, max: 100, defaultHeight: fullArtHeight };
-  return effect === 'topEffect'
-    ? { edge: panel.y, max: 100 - panel.y, defaultHeight: panel.h }
-    : { edge: panel.y + panel.h, max: panel.y + panel.h, defaultHeight: panel.h };
-}
-
-function wash(ctx: CanvasRenderingContext2D, template: Template, appearance: TemplateAppearance,
+function wash(ctx: CanvasRenderingContext2D, appearance: TemplateAppearance,
   effect: Effect, color: string, strength: number, blurStep?: number) {
   const { width, height } = ctx.canvas ?? pixels;
   if (!strength) return false;
-  const { panel, radius } = regions[effect];
-  const { edge, max, defaultHeight } = templateEffectLimits(template, effect);
   const top = effect === 'topEffect';
+  const edge = top ? 0 : 100;
   const settings = appearance[effect];
-  let extent = settings?.height ?? defaultHeight;
+  let extent = settings?.height ?? templateEffectHeights[effect];
   if (settings && settings.anchor !== 'manual') {
     const zone = appearance.zones[settings.anchor];
     const boundary = zone.y + zone.h / 2 < 50 ? zone.y + zone.h : zone.y;
     extent = top ? boundary - edge : edge - boundary;
   }
-  extent = Math.min(max, extent);
+  extent = Math.min(100, extent);
   if (extent <= 0) return false;
   const tinted = (opacity: number) => color + Math.round(opacity * strength * 255).toString(16).padStart(2, '0');
-  if (template === 'full-art') {
-    // Let the transition continue beyond the selected boundary, clipped by the card.
-    const transitionExtent = extent * 1.35;
-    const y = top ? edge : edge - transitionExtent;
-    const gradient = ctx.createLinearGradient(0, y * height / 100, 0, (y + transitionExtent) * height / 100);
-    for (let i = 0; i <= 96; i++) {
-      const position = i / 96;
-      const distance = top ? 1 - position : position;
-      const intensity = distance * distance * (3 - 2 * distance);
-      const fraction = blurStep === undefined ? intensity : Math.max(0, Math.min(1, intensity * 6 - blurStep));
-      const opacity = blurStep === undefined ? fraction : fraction * fraction * (3 - 2 * fraction);
-      gradient.addColorStop(position, tinted(opacity));
-    }
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, y * height / 100, width, transitionExtent * height / 100);
-  } else {
-    const y = top ? edge : edge - extent;
-    const rect = templateBox({ ...panel, y, h: extent }, width, height);
-    ctx.beginPath();
-    ctx.roundRect(rect.x, rect.y, rect.w, rect.h, radius);
-    ctx.fillStyle = tinted(1);
-    ctx.fill();
+  // Let the transition continue beyond the selected boundary, clipped by the card.
+  const transitionExtent = extent * 1.35;
+  const y = top ? edge : edge - transitionExtent;
+  const gradient = ctx.createLinearGradient(0, y * height / 100, 0, (y + transitionExtent) * height / 100);
+  for (let i = 0; i <= 96; i++) {
+    const position = i / 96;
+    const distance = top ? 1 - position : position;
+    const intensity = distance * distance * (3 - 2 * distance);
+    const fraction = blurStep === undefined ? intensity : Math.max(0, Math.min(1, intensity * blurSteps - blurStep));
+    const opacity = blurStep === undefined ? fraction : fraction * fraction * (3 - 2 * fraction);
+    gradient.addColorStop(position, tinted(opacity));
   }
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, y * height / 100, width, transitionExtent * height / 100);
   return true;
 }
 
-export function blurTemplateArt(ctx: CanvasRenderingContext2D, template: Template, appearance: TemplateAppearance) {
+export function blurTemplateArt(ctx: CanvasRenderingContext2D, appearance: TemplateAppearance) {
   if (!appearance.titleBlur && !appearance.rulesBlur) return;
   const { width, height } = ctx.canvas ?? pixels;
   const buffer = document.createElement('canvas');
@@ -79,7 +58,7 @@ export function blurTemplateArt(ctx: CanvasRenderingContext2D, template: Templat
   padded.width = width + padding * 2;
   padded.height = height + padding * 2;
   const source = padded.getContext('2d')!;
-  // Extend edge pixels so the blur also covers the outer edge of a full-art card.
+  // Extend edge pixels so the blur also covers the outer edge of the card.
   const strips = (size: number) => [[0, 1, 0, padding], [0, size, padding, size], [size - 1, 1, padding + size, padding]];
   for (const [x, w, left, targetWidth] of strips(width)) {
     for (const [y, h, top, targetHeight] of strips(height)) {
@@ -89,24 +68,23 @@ export function blurTemplateArt(ctx: CanvasRenderingContext2D, template: Templat
   for (const [effect, strength] of [['topEffect', appearance.titleBlur], ['bottomEffect', appearance.rulesBlur]] as const) {
     if (!strength) continue;
     // Crossfade successive blur radii instead of fading a single fully blurred image.
-    const steps = template === 'full-art' ? 6 : 1;
-    for (let step = 0; step < steps; step++) {
+    for (let step = 0; step < blurSteps; step++) {
       layer.clearRect(0, 0, width, height);
-      layer.filter = 'blur(' + (strength * (step + 1) / steps) + 'px)';
+      layer.filter = 'blur(' + (strength * (step + 1) / blurSteps) + 'px)';
       layer.drawImage(padded, -padding, -padding);
       layer.filter = 'none';
       layer.globalCompositeOperation = 'destination-in';
-      const masked = wash(layer, template, appearance, effect, '#ffffff', 1, steps > 1 ? step : undefined);
+      const masked = wash(layer, appearance, effect, '#ffffff', 1, step);
       layer.globalCompositeOperation = 'source-over';
       if (masked) ctx.drawImage(buffer, 0, 0);
     }
   }
 }
 
-export function shadeTemplate(ctx: CanvasRenderingContext2D, template: Template, appearance: TemplateAppearance) {
+export function shadeTemplate(ctx: CanvasRenderingContext2D, appearance: TemplateAppearance) {
   const color = appearance.shadeColor ?? '#141820';
-  wash(ctx, template, appearance, 'topEffect', color, appearance.titleShade);
-  wash(ctx, template, appearance, 'bottomEffect', color, appearance.rulesShade);
+  wash(ctx, appearance, 'topEffect', color, appearance.titleShade);
+  wash(ctx, appearance, 'bottomEffect', color, appearance.rulesShade);
 }
 
 export function drawTemplateDividers(ctx: CanvasRenderingContext2D, appearance: TemplateAppearance, cardColor: CardPaint) {

@@ -14,7 +14,7 @@ import { Icon } from './Icon.js';
 import { Preview, PreviewGuidesButton } from './Preview.js';
 import { importFrameArtwork } from './frame-artwork.js';
 import { SymbolEditor } from './SymbolEditor.js';
-import { templateEffectLimits } from './template-effects.js';
+import { templateEffectHeights } from './template-effects.js';
 import { VisibilityConditionEditor } from './VisibilityConditionEditor.js';
 
 type AppearanceChange = (appearance: TemplateAppearance) => TemplateAppearance;
@@ -205,15 +205,14 @@ export function TemplateEditor({ tab, selectTab, appearance, customFrame, custom
                 ] as const).map(([effect, shade, blur]) => {
                   const settings = appearance[effect];
                   const anchor = settings?.anchor ?? 'manual';
-                  const { max, defaultHeight } = templateEffectLimits(template, effect);
                   return <fieldset key={effect} className="template-settings">
                     <legend>{t(effect)}</legend>
                     <label>{t(`${effect}Anchor`)}<Select value={anchor} onChange={event =>
                       patch({ [effect]: { ...settings, anchor: event.target.value as TemplateEffect['anchor'] } })}>
                       {Object.entries(effectAnchors).map(([value, name]) => <option key={value} value={value}>{t(name)}</option>)}
                     </Select></label>
-                    {anchor === 'manual' && <Slider label={t(`${effect}Height`)} value={Math.min(settings?.height ?? defaultHeight, max)}
-                      max={max} step={0.1} unit="%" change={height => patch({ [effect]: { anchor, height } })} />}
+                    {anchor === 'manual' && <Slider label={t(`${effect}Height`)} value={settings?.height ?? templateEffectHeights[effect]}
+                      max={100} step={0.1} unit="%" change={height => patch({ [effect]: { anchor, height } })} />}
                     <Slider label={t(`${effect}Shade`)} value={Math.round(appearance[shade] * 100)} max={100} unit="%" change={value => patch({ [shade]: value / 100 })} />
                     <Slider label={t(`${effect}Blur`)} value={appearance[blur] ?? 0} max={32} unit=" px" change={value => patch({ [blur]: value })} />
                   </fieldset>;

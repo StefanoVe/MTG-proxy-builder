@@ -25,7 +25,7 @@ test('anchored shading extends past the element edge facing the card center', ()
     appearance.titleShade = effect === 'topEffect' ? 1 : 0;
     appearance.rulesShade = effect === 'bottomEffect' ? 1 : 0;
     appearance[effect] = { anchor: 'title' };
-    shadeTemplate(ctx, 'full-art', appearance);
+    shadeTemplate(ctx, appearance);
     assert.equal(gradients.length, 1);
     const boundary = expectedY * pixels.height / 100;
     const end = gradients[0][effect === 'topEffect' ? 3 : 1];
@@ -33,7 +33,7 @@ test('anchored shading extends past the element edge facing the card center', ()
   }
 });
 
-test('full-art shading fades smoothly and symmetrically at both edges', () => {
+test('template shading fades smoothly and symmetrically at both edges', () => {
   const gradients: [number, string][][] = [];
   const ctx = {
     createLinearGradient: () => {
@@ -45,7 +45,7 @@ test('full-art shading fades smoothly and symmetrically at both edges', () => {
   } as unknown as CanvasRenderingContext2D;
   const appearance = templateAppearance(newTemplate('full-art'));
   appearance.titleShade = appearance.rulesShade = 1;
-  shadeTemplate(ctx, 'full-art', appearance);
+  shadeTemplate(ctx, appearance);
   const alpha = (color: string) => parseInt(color.slice(-2), 16);
   assert.equal(alpha(gradients[0][0][1]), 255);
   assert.equal(alpha(gradients[0][96][1]), 0);
@@ -55,7 +55,7 @@ test('full-art shading fades smoothly and symmetrically at both edges', () => {
   for (let i = 0; i <= 96; i++) assert.equal(alpha(gradients[0][i][1]), alpha(gradients[1][96 - i][1]));
 });
 
-test('anchored full-art effects remain visible across the selected boundary', () => {
+test('anchored template effects remain visible across the selected boundary', () => {
   for (const effect of ['topEffect', 'bottomEffect'] as const) {
     let coordinates: number[] = [];
     const stops: [number, string][] = [];
@@ -71,7 +71,7 @@ test('anchored full-art effects remain visible across the selected boundary', ()
     appearance.titleShade = effect === 'topEffect' ? 1 : 0;
     appearance.rulesShade = effect === 'bottomEffect' ? 1 : 0;
     appearance[effect] = { anchor: 'title' };
-    shadeTemplate(ctx, 'full-art', appearance);
+    shadeTemplate(ctx, appearance);
     const boundary = 45 * pixels.height / 100;
     const position = (boundary - coordinates[1]) / (coordinates[3] - coordinates[1]);
     const index = Math.round(position * 96);
@@ -82,7 +82,7 @@ test('anchored full-art effects remain visible across the selected boundary', ()
   }
 });
 
-test('full-art blur uses progressively stronger blur radii', () => {
+test('template blur uses progressively stronger blur radii', () => {
   const filters: string[] = [];
   const makeContext = () => ({
     filter: 'none', globalCompositeOperation: 'source-over', fillStyle: '',
@@ -93,10 +93,10 @@ test('full-art blur uses progressively stronger blur radii', () => {
   const originalDocument = globalThis.document;
   Object.assign(globalThis, { document: { createElement: () => ({ getContext: makeContext }) } });
   try {
-    const appearance = templateAppearance(newTemplate('full-art'));
+    const appearance = templateAppearance(newTemplate('extended-art'));
     appearance.titleBlur = 12;
     appearance.rulesBlur = 0;
-    blurTemplateArt({ canvas: {}, drawImage() {} } as unknown as CanvasRenderingContext2D, 'full-art', appearance);
+    blurTemplateArt({ canvas: pixels, drawImage() {} } as unknown as CanvasRenderingContext2D, appearance);
     assert.deepEqual(filters, ['blur(2px)', 'blur(4px)', 'blur(6px)', 'blur(8px)', 'blur(10px)', 'blur(12px)']);
   } finally {
     if (originalDocument === undefined) Reflect.deleteProperty(globalThis, 'document');
