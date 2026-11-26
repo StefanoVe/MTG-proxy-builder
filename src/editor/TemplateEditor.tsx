@@ -14,6 +14,7 @@ import { Icon } from './Icon.js';
 import { Preview, PreviewGuidesButton } from './Preview.js';
 import { importFrameArtwork } from './frame-artwork.js';
 import { SymbolEditor } from './SymbolEditor.js';
+import { StatsAppearanceControls } from './StatsAppearanceControls.js';
 import { templateEffectHeights } from './template-effects.js';
 import { VisibilityConditionEditor } from './VisibilityConditionEditor.js';
 
@@ -82,7 +83,7 @@ export function TemplateEditor({ tab, selectTab, appearance, customFrame, custom
       ...example, art: sampleArt, source: { ...example.source, colors: sampleColor === 'C' ? [] : [sampleColor] },
       fields: { ...example.fields, mana: sampleColor === 'C' ? '{3}' : '{2}{' + sampleColor + '}' }
     }),
-    frame: customFrame ?? { kind: 'template', template, appearance }
+    frame: customFrame ?? { kind: 'template', template, appearance }, statsOverrides: undefined
   }), [previewSource, sampleArt, sampleColor, template, appearance, example, customFrame]);
   const count = cards.filter(card => {
     const frame = card.frame;
@@ -330,6 +331,7 @@ export function TemplateEditor({ tab, selectTab, appearance, customFrame, custom
               <Slider label={t('maxFontSize')} value={appearance.textStyles?.[textArea]?.size ?? (tab === 'custom' && textArea === 'artist' ? 20 : defaultFrameTextSizes[textArea])}
                 min={8} max={96} unit=" px" change={size => editTextStyle(textArea, { size })} />
             </div>}
+            {zone === 'stats' && <StatsAppearanceControls value={appearance.statsAppearance} change={statsAppearance => patch({ statsAppearance })} />}
           </fieldset>}
         </div>
         }

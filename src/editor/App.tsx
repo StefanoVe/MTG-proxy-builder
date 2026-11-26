@@ -32,7 +32,7 @@ import { detectedArtZone, pngArtZone } from './compose.js';
 type ExportMode = 'sheet' | 'cards';
 type Panel = 'deck' | 'batch' | 'print' | ExportMode | 'printings' | 'frames' | 'templates' | 'switch-project';
 type WorkspacePane = 'deck' | 'preview' | 'properties';
-type FrameSettings = Pick<Card, 'zoneOverrides' | 'hiddenZones' | 'dividerOverrides'>;
+type FrameSettings = Pick<Card, 'zoneOverrides' | 'hiddenZones' | 'dividerOverrides' | 'statsOverrides'>;
 const workspacePanes: WorkspacePane[] = ['deck', 'preview', 'properties'];
 const usesArt = (card: Card) => card.source.editable && card.frame.kind !== 'printing';
 const imageKey = (projectId: string, card: Card) => `${projectId}/${card.id}/${card.source.printingId}/${usesArt(card) ? 'art' : 'scan'}`;
@@ -973,8 +973,8 @@ export function App() {
           change: changeFrameMirror
         } : undefined}
         copyFrame={canCopyFrame ? () => {
-          const { frame, zoneOverrides, hiddenZones, dividerOverrides } = selectedRendered;
-          setCopiedFrame(structuredClone({ frame, settings: { zoneOverrides, hiddenZones, dividerOverrides } }));
+          const { frame, zoneOverrides, hiddenZones, dividerOverrides, statsOverrides } = selectedRendered;
+          setCopiedFrame(structuredClone({ frame, settings: { zoneOverrides, hiddenZones, dividerOverrides, statsOverrides } }));
           setNotice({ key: 'frameCopied' });
         } : undefined}
         pasteFrame={copiedFrame && !mirror ? () => {

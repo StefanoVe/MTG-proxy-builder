@@ -668,3 +668,5 @@ button, input:not([type="range"], [type="checkbox"]), select, textarea { border-
   body { overflow-y: auto; }
   .workspace { height: 620px; }
 }
+
+.stats-divider-option { display: inline-flex; align-items: center; gap: 8px; vertical-align: middle; }

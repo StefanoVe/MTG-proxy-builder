@@ -81,6 +81,11 @@ const symbolStyleSchema = z.object({ asset: assetId.optional(), textColor: hexCo
 export type SymbolStyle = z.infer<typeof symbolStyleSchema>;
 const symbolOverridesSchema = z.partialRecord(z.enum(Object.keys(manaFiles)), symbolStyleSchema);
 export type SymbolOverrides = z.infer<typeof symbolOverridesSchema>;
+export const statsStyles = ['square', 'rounded', 'capsule', 'chamfered', 'double', 'dashed', 'dotted', 'diamond', 'fade', 'banner'] as const;
+const statsStyleSchema = z.enum(['original', ...statsStyles]);
+export type StatsStyle = z.infer<typeof statsStyleSchema>;
+const statsAppearanceSchema = z.object({ divider: statsStyleSchema.optional(), box: statsStyleSchema.optional() });
+export type StatsAppearance = z.infer<typeof statsAppearanceSchema>;
 export const templateAppearanceSchema = z.object({
   zones: zonesSchema, overlay: assetId.optional(), symbolOverrides: symbolOverridesSchema.optional(),
   textColor: hexColor, fontFamily: fontFamilySchema.optional(), accent: hexColor.optional(), divider: z.boolean(),
@@ -95,6 +100,7 @@ export const templateAppearanceSchema = z.object({
   dividerAlign: z.enum(['left', 'center', 'right']).optional(),
   dividerStyle: z.enum(['solid', 'fade', 'dashed']).optional(),
   titleDividerHideWhen: visibilityConditionSchema.optional(), dividerHideWhen: visibilityConditionSchema.optional(),
+  statsAppearance: statsAppearanceSchema.optional(),
   decorations: z.array(decorationSchema).max(maxDecorations).optional()
 }).transform(({ autoTextColor, ...appearance }) => autoTextColor && !appearance.autoTextColors
   ? { ...appearance, autoTextColors: { title: true, rules: true, type: true } }
@@ -127,6 +133,7 @@ const cardSideSchema = z.object({
   zoneOverrides: zonesSchema.partial().optional(),
   hiddenZones: z.array(z.enum(['art', 'title', 'type', 'rules', 'stats'])).optional(),
   dividerOverrides: z.object({ titleDivider: z.boolean().optional(), divider: z.boolean().optional() }).optional(),
+  statsOverrides: statsAppearanceSchema.optional(),
   textAlignOverrides: z.partialRecord(z.enum(frameTextAreas), frameTextAlignSchema).optional(),
   frameMirror: z.object({ cardId: uuid, back: z.boolean() }).optional(),
   crop: z.object({ x: z.number().min(-1).max(1), y: z.number().min(-1).max(1), zoom: z.number().min(1).max(5) }),
@@ -237,13 +244,13 @@ export function sideOrientation(card: Card, back = false): 'portrait' | 'landsca
 }
 
 export function sideState(card: Card): NonNullable<Card['backSide']> {
-  const { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides, textAlignOverrides, frameMirror } = card;
-  return { fields, art, crop, frame, zoneOverrides, hiddenZones, dividerOverrides, textAlignOverrides, frameMirror };
+  const { fields, art, crop, frameMirror } = card;
+  return { fields, art, crop, frameMirror, ...sideFrameSettings(card) };
 }
 
 export function sideFrameSettings(card: Card) {
-  const { frame, zoneOverrides, hiddenZones, dividerOverrides, textAlignOverrides } = card;
-  return { frame, zoneOverrides, hiddenZones, dividerOverrides, textAlignOverrides };
+  const { frame, zoneOverrides, hiddenZones, dividerOverrides, statsOverrides, textAlignOverrides } = card;
+  return { frame, zoneOverrides, hiddenZones, dividerOverrides, statsOverrides, textAlignOverrides };
 }
 
 export function rebaseBackSide(card: Card, source: CardData): Card['backSide'] {
@@ -269,6 +276,7 @@ export function isCardModified(card: Card): boolean {
     || (card.hiddenZones?.length ?? 0) > 0
     || Object.values(card.zoneOverrides ?? {}).some(value => value !== undefined)
     || Object.values(card.textAlignOverrides ?? {}).some(value => value !== undefined)
+    || Object.values(card.statsOverrides ?? {}).some(value => value !== undefined)
     || Object.values(card.dividerOverrides ?? {}).some(value => value !== undefined)) return true;
 
   const originalFields = printingFields(card.source);

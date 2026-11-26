@@ -13,6 +13,7 @@ import { cardArtZone, defaultCrop, frameColorNames, frameTextAreas, isTemplate, 
 import type { Asset, Card, FrameSet, FrameTextAlign, FrameTextArea, Preset, Rect, TemplateAppearance, Zones } from '../shared/model.js';
 import { isCardModified } from '../shared/model.js';
 import { Icon } from './Icon.js';
+import { StatsAppearanceControls } from './StatsAppearanceControls.js';
 import type { IconName } from './Icon.js';
 
 export const zoneLabels: Record<keyof Zones, MessageKey> = { art: 'art', title: 'header', type: 'type', rules: 'text', stats: 'stats' };
@@ -322,6 +323,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
             </Select></label>
             {original && <p className="muted">{t('printingAlignmentHelp', { template: printingTemplateName })}</p>}
           </>}
+          {layoutZone === 'stats' && <StatsAppearanceControls value={card.statsOverrides} inherit change={statsOverrides => update({ statsOverrides })} />}
         </div>
 
         {colorSet && <>

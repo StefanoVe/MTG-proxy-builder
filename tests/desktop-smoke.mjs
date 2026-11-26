@@ -280,6 +280,33 @@ try {
   assert.equal(await fontSize.inputValue(), '8');
   await choose(editableZone, 'artist');
   assert.equal(await fontSize.inputValue(), '20');
+  await choose(editableZone, 'stats');
+  await choose(frameEditor.locator('.template-preview-options').getByLabel('Anteprima'), '');
+  const statsBox = frameEditor.getByLabel('Stile del riquadro');
+  const statsDivider = frameEditor.getByLabel('Separatore forza/costituzione');
+  const previewCanvas = frameEditor.locator('canvas');
+  await previewCanvas.waitFor();
+  await statsBox.click();
+  assert.equal(await frameEditor.getByRole('option').count(), 11);
+  await frameEditor.getByRole('option', { name: 'Capsula' }).click();
+  await page.waitForFunction(() => document.querySelector('.template-preview-card canvas').getContext('2d')
+    .getImageData(595, 950, 1, 1).data.slice(0, 3).join(',') === '250,246,237');
+  const statsPixels = () => {
+    const context = document.querySelector('.template-preview-card canvas').getContext('2d');
+    return { above: context.getImageData(558, 930, 135, 9).data.join(','),
+      separator: context.getImageData(617, 950, 15, 32).data.join(',') };
+  };
+  const originalStats = await page.evaluate(statsPixels);
+  await choose(statsDivider, 'capsule');
+  await page.waitForFunction(separator => document.querySelector('.template-preview-card canvas').getContext('2d')
+    .getImageData(617, 950, 15, 32).data.join(',') !== separator, originalStats.separator);
+  assert.equal((await page.evaluate(statsPixels)).above, originalStats.above);
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    const saved = await window.proxy.open(project.id);
+    const stats = saved.frameSets.find(set => set.name === 'Cornici prova')?.appearance?.statsAppearance;
+    return stats?.box === 'capsule' && stats.divider === 'capsule';
+  });
   await frameEditor.getByRole('button', { name: 'Colori', exact: true }).click();
   assert.equal(await frameEditor.locator('.template-controls-body:visible').evaluate(node => node.scrollWidth <= node.clientWidth), true);
   await frameEditor.screenshot({ path: join(paths, 'custom-frames.png') });
@@ -292,9 +319,23 @@ try {
     const saved = await window.proxy.open(project.id);
     const frame = saved.cards[0].frame;
     return frame.kind === 'color-set' && frame.set.appearance?.textStyles?.title?.align === 'right'
-      && frame.set.appearance.textStyles.title.size === 8;
+      && frame.set.appearance.textStyles.title.size === 8 && frame.set.appearance.statsAppearance?.box === 'capsule';
   });
   await frameTab.click();
+  await choose(frameElement, 'stats');
+  const cardStatsBox = inspector.getByLabel('Stile del riquadro');
+  const cardStatsDivider = inspector.getByLabel('Separatore forza/costituzione');
+  assert.equal(await cardStatsBox.getAttribute('data-value'), '');
+  await choose(cardStatsBox, 'banner');
+  await choose(cardStatsDivider, 'original');
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    const saved = await window.proxy.open(project.id);
+    const { statsOverrides } = saved.cards[0];
+    return statsOverrides?.box === 'banner' && statsOverrides.divider === 'original';
+  });
+  await choose(cardStatsBox, '');
+  await choose(cardStatsDivider, '');
   await choose(frameElement, 'art');
   await zoneX.waitFor();
   assert.equal(await cardAlignment.count(), 0);

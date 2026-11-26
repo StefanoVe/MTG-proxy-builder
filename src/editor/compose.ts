@@ -9,6 +9,7 @@ import { hiddenByCondition } from '../shared/frame-visibility.js';
 import { defaultFrameTextAlign, defaultFrameTextSizes, frameAppearance } from '../shared/templates.js';
 import { blurTemplateArt, drawTemplateDividers, shadeTemplate, templateBox } from './template-effects.js';
 import { drawDecorations, loadMotif } from './template-decorations.js';
+import { drawStatsBox, drawStatsRule } from './stats-appearance.js';
 import { manaTokens, ruleWords } from '../shared/mana.js';
 import type { RuleRun } from '../shared/mana.js';
 import { drawSymbol, manaIcons } from './mana-icons.js';
@@ -96,23 +97,50 @@ function artwork(ctx: CanvasRenderingContext2D, image: HTMLImageElement, r: Rect
   ctx.restore();
 }
 
+type StatsPair = { power: string; toughness: string; divider?: Parameters<typeof drawStatsRule>[2] };
+
 function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: number, font: string, color: CardPaint,
-  align: CanvasTextAlign, customSize?: number) {
+  align: CanvasTextAlign, customSize?: number, pair?: StatsPair) {
   if (!text || r.w < 2) return;
   const size = customSize ?? Math.min(max, r.h * 0.72);
   ctx.font = `${size}px ${font}`;
   ctx.textAlign = align;
   ctx.textBaseline = 'middle';
   const metrics = ctx.measureText(text);
-  const fitted = Math.min(size, size * r.w / metrics.width);
+  const dividerWidth = pair && !pair.divider ? ctx.measureText('/').width / size : .62;
+  const measuredWidth = pair ? ctx.measureText(pair.power).width + ctx.measureText(pair.toughness).width + size * dividerWidth : metrics.width;
+  const fitted = Math.min(size, size * r.w / measuredWidth);
   const finalSize = customSize === undefined ? Math.max(12, fitted)
     : Math.min(fitted, size * r.h / (2 * Math.max(metrics.actualBoundingBoxAscent, metrics.actualBoundingBoxDescent)));
   ctx.font = `${finalSize}px ${font}`;
   const alignment = align === 'center' ? .5 : align === 'right' ? 1 : 0;
   const x = r.x + r.w * alignment;
+  const y = r.y + r.h / 2;
+  if (pair) {
+    const powerWidth = ctx.measureText(pair.power).width;
+    const gap = finalSize * dividerWidth;
+    const fullWidth = powerWidth + gap + ctx.measureText(pair.toughness).width;
+    const scale = Math.min(1, r.w / fullWidth);
+    const glyphHeight = Math.min(finalSize * .9, r.h);
+    ctx.save();
+    ctx.translate(x - fullWidth * scale * alignment, y);
+    ctx.scale(scale, 1);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = cardPaint(ctx, color, 0, fullWidth);
+    const drawCenteredValue = (value: string, left: number) => {
+      const { actualBoundingBoxAscent, actualBoundingBoxDescent } = ctx.measureText(value);
+      ctx.fillText(value, left, (actualBoundingBoxAscent - actualBoundingBoxDescent) / 2);
+    };
+    drawCenteredValue(pair.power, 0);
+    if (pair.divider) drawStatsRule(ctx, { x: powerWidth, y: -glyphHeight / 2, w: gap, h: glyphHeight }, pair.divider);
+    else drawCenteredValue('/', powerWidth);
+    drawCenteredValue(pair.toughness, powerWidth + gap);
+    ctx.restore();
+    return;
+  }
   const textWidth = Math.min(r.w, ctx.measureText(text).width);
   ctx.fillStyle = cardPaint(ctx, color, x - textWidth * alignment, textWidth);
-  ctx.fillText(text, x, r.y + r.h / 2, r.w);
+  ctx.fillText(text, x, y, r.w);
 }
 
 function canvasFontFamily(family?: string) {
@@ -279,6 +307,9 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   const illustration = box(zones.art);
   const stats = card.fields.loyalty || card.fields.defense ||
     (card.fields.power || card.fields.toughness ? `${card.fields.power}/${card.fields.toughness}` : '');
+  const showStats = !!stats && !hidden.has('stats');
+  const { box: statsBox, divider: statsDivider } = { ...appearance?.statsAppearance, ...card.statsOverrides };
+  const styledStatsBox = statsBox && statsBox !== 'original' ? statsBox : undefined;
 
   if (!overlay && !template) {
     ctx.save();
@@ -293,7 +324,7 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
     if (!hidden.has('title')) drawRect(ctx, { x: 37, y: 42, w: baseWidth - 74, h: 69 }, panel, classic ? 1 : 12, '#302b25');
     if (!hidden.has('type')) drawRect(ctx, { x: 37, y: 623, w: baseWidth - 74, h: 64 }, panel, classic ? 1 : 10, '#302b25');
     if (!hidden.has('rules')) drawRect(ctx, { x: 37, y: 693, w: baseWidth - 74, h: 254 }, panel, classic ? 1 : 12, '#302b25');
-    if (stats && !hidden.has('stats')) drawRect(ctx, templateBox(zones.stats), panel, classic ? 1 : 12, '#302b25');
+    if (showStats && !styledStatsBox) drawRect(ctx, templateBox(zones.stats), panel, classic ? 1 : 12, '#302b25');
     ctx.restore();
   }
   if (!hidden.has('art')) {
@@ -325,7 +356,19 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
     drawSymbol(ctx, icons, token, x, title.y + (title.h - diameter) / 2, diameter, cardPaint(ctx, colorForText('title'), x, diameter));
   });
   if (!hidden.has('type')) drawLine('type', card.fields.type, box(zones.type));
-  if (stats && !hidden.has('stats')) drawLine('stats', stats, box(zones.stats));
+  if (showStats) {
+    const rect = box(zones.stats);
+    const rgb = parseInt(textColor.slice(1), 16);
+    const lightText = .299 * (rgb >> 16) + .587 * (rgb >> 8 & 255) + .114 * (rgb & 255) >= 140;
+    const color = appearance?.accent ?? (lightText ? cardColor : border);
+    const divider = statsDivider && statsDivider !== 'original' ? statsDivider : undefined;
+    const textRect = styledStatsBox
+      ? drawStatsBox(ctx, rect, styledStatsBox, color, lightText ? '#17191e' : '#faf6ed') : rect;
+    const { power, toughness, loyalty, defense } = card.fields;
+    const pair = !loyalty && !defense
+      ? { power, toughness, divider } : undefined;
+    fitLine(ctx, stats, textRect, defaultFrameTextSizes.stats, font, colorForText('stats'), textAlign('stats'), textSize('stats'), pair);
+  }
   const result = hidden.has('rules') || drawRules(ctx, card.fields.rules, box(zones.rules), colorForText('rules'), icons, font,
     textSize('rules') ?? defaultFrameTextSizes.rules, textAlign('rules'));
   if (template) {
