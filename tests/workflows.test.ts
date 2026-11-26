@@ -84,6 +84,20 @@ test('alignment overrides survive saving and project frames independently for ea
   assert.deepEqual(cardSide(rendered, true).textAlignOverrides, { rules: 'right' });
 });
 
+test('an unedited reverse does not inherit the front artwork or hidden text', () => {
+  const front: Card = {
+    ...createCard({ ...blankCard, images: { front: image, back: image, backArt: image } }),
+    art: 'b'.repeat(64), hiddenZones: ['title', 'type', 'rules', 'stats'],
+    zoneOverrides: { rules: defaultZones.rules }, dividerOverrides: { divider: false }
+  };
+  const reverse = cardSide(front, true);
+  assert.equal(reverse.art, undefined);
+  assert.equal(reverse.source.images.art, image);
+  assert.equal(reverse.hiddenZones, undefined);
+  assert.equal(reverse.zoneOverrides, undefined);
+  assert.equal(reverse.dividerOverrides, undefined);
+});
+
 test('multiple sides mirror the source settings in previews and scoped exports', () => {
   const source = createCard({ ...blankCard, name: 'Source', images: { back: image } });
   source.backSide = sideState({ ...cardSide(source, true), frame: newTemplate('extended-art'),

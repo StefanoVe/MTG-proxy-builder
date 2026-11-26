@@ -113,13 +113,17 @@ try {
     ctx.beginPath();
     ctx.moveTo(0, 595); ctx.lineTo(325, 300); ctx.lineTo(620, 650); ctx.lineTo(744, 522); ctx.lineTo(744, 1039); ctx.lineTo(0, 1039);
     ctx.fill();
-    return { art: canvas.toDataURL(), catalog: canvas.toDataURL('image/webp'), frame };
+    const art = canvas.toDataURL();
+    const catalog = canvas.toDataURL('image/webp');
+    ctx.fillStyle = '#bc258e';
+    ctx.fillRect(0, 0, 48, 48);
+    return { art, catalog, catalogBack: canvas.toDataURL('image/webp'), frame };
   });
   const artFile = join(paths, 'Lightning Bolt.png');
   const frameFile = join(paths, 'Cornice.png');
   await writeFile(artFile, Buffer.from(assetFiles.art.split(',')[1], 'base64'));
   await writeFile(frameFile, Buffer.from(assetFiles.frame.split(',')[1], 'base64'));
-  await electron.evaluate(({ dialog }, { artFile, frameFile, pdfPath, zipPath, catalog }) => {
+  await electron.evaluate(({ dialog }, { artFile, frameFile, pdfPath, zipPath, catalog, catalogBack }) => {
     let nextFiles = [];
     globalThis.setSmokeFiles = (...files) => { nextFiles = files.map(file => ({ art: artFile, frame: frameFile })[file]); };
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: nextFiles });
@@ -133,13 +137,20 @@ try {
       image_uris: { art: 'https://cards.scryfall.io/art/demo.webp', display: 'https://cards.scryfall.io/display/demo.webp' },
       prints_search_uri: 'https://api.scryfall.com/cards/search?q=bolt' };
     const second = { ...exact, id: 'd0000000-0000-4000-8000-000000000001', set: 'm11', set_name: 'Magic 2011', collector_number: '149' };
-    const cardFaces = ['Sole', 'Luna'].map(name => ({ name, image_uris: { art: 'https://cards.scryfall.io/art/demo.webp', display: 'https://cards.scryfall.io/display/demo.webp' } }));
+    const cardFaces = ['Sole', 'Luna'].map((name, index) => {
+      const file = index === 0 ? 'demo.webp' : 'back.webp';
+      return { name, type_line: 'Creature', oracle_text: `Testo di ${name}.`,
+        image_uris: { art: `https://cards.scryfall.io/art/${file}`, display: `https://cards.scryfall.io/display/${file}` } };
+    });
     const double = { ...exact, id: 'd0000000-0000-4000-8000-000000000002', name: 'Sole // Luna', layout: 'transform',
-      collector_number: '5', image_uris: undefined, card_faces: cardFaces };
+      collector_number: '5', full_art: true, image_uris: undefined, card_faces: cardFaces };
     const autocompleteReady = new Promise(resolve => { globalThis.finishSmokeSearch = resolve; });
     globalThis.fetch = async (url, init) => {
       const path = new URL(url);
-      if (path.hostname === 'cards.scryfall.io') return new Response(Buffer.from(catalog.split(',')[1], 'base64'), { headers: { 'content-type': 'image/webp' } });
+      if (path.hostname === 'cards.scryfall.io') {
+        const image = path.pathname.endsWith('/back.webp') ? catalogBack : catalog;
+        return new Response(Buffer.from(image.split(',')[1], 'base64'), { headers: { 'content-type': 'image/webp' } });
+      }
       if (path.pathname === '/cards/named') return path.searchParams.get('exact') === exact.name ? Response.json(exact) : new Response(null, { status: 404 });
       if (path.pathname === '/cards/autocomplete') {
         if (path.searchParams.get('q') === 'Lightning Bol') await autocompleteReady;
@@ -152,7 +163,7 @@ try {
       const card = [exact, second, double].find(card => path.pathname === '/cards/' + card.id);
       return card ? Response.json(card) : new Response(null, { status: 404 });
     };
-  }, { artFile, frameFile, pdfPath, zipPath, catalog: assetFiles.catalog });
+  }, { artFile, frameFile, pdfPath, zipPath, catalog: assetFiles.catalog, catalogBack: assetFiles.catalogBack });
   const input = page.getByRole('searchbox', { name: 'Nome della carta da cercare' });
   const search = page.getByRole('search').getByRole('button', { name: 'Cerca carta' });
   assert.equal(await search.isDisabled(), true);
@@ -379,6 +390,39 @@ try {
     const [project] = await window.proxy.projects();
     return !(await window.proxy.open(project.id)).cards[1].backSide;
   });
+  await electron.evaluate(() => globalThis.setSmokeFiles('art'));
+  assert.equal(await cardText.inputValue(), 'Testo di Sole.');
+  await page.locator('.image-dropzone').click();
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    const front = (await window.proxy.open(project.id)).cards[1];
+    return front.art && front.frame.kind === 'template' && front.fields.rules === 'Testo di Sole.' && !front.backSide;
+  });
+  await backSide.click();
+  assert.equal(await cardText.inputValue(), 'Testo di Luna.');
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector('.stage-current canvas');
+    if (canvas?.width !== 744) return false;
+    const [red, green, blue] = canvas.getContext('2d').getImageData(12, 12, 1, 1).data;
+    return red > 170 && green < 60 && blue > 120;
+  });
+  await inspector.getByRole('button', { name: 'Illustrazione', exact: true }).click();
+  assert.equal(await inspector.getByRole('button', { name: 'Torna all’illustrazione di catalogo' }).count(), 0);
+  await page.locator('.image-dropzone').click();
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    const front = (await window.proxy.open(project.id)).cards[1];
+    const back = front.backSide;
+    return front.art && front.fields.rules === 'Testo di Sole.'
+      && back?.art && back.frame.kind === 'template' && back.fields.rules === 'Testo di Luna.';
+  });
+  await undoChange.click();
+  await undoChange.click();
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    const front = (await window.proxy.open(project.id)).cards[1];
+    return !front.art && !front.backSide;
+  });
   const source = await page.evaluate(async () => {
     const [project] = await window.proxy.projects();
     const [card] = (await window.proxy.open(project.id)).cards;
@@ -389,12 +433,13 @@ try {
   const mirrorSource = `${source.id}/front`;
   const frameLock = inspector.getByText('Per modificare questa cornice, scegli Nessuna sorgente.');
   const mirrorWarning = inspector.getByRole('status').filter({ hasText: 'Mirroring sospeso' });
+  const resetCard = inspector.getByRole('button', { name: 'Ripristina carta originale' });
   await backSide.click();
   await frameTab.click();
   await choose(mirrorSelect, mirrorSource);
   await frameLock.waitFor();
   assert.ok(await pasteFrame.isDisabled());
-  assert.ok(await inspector.getByRole('button', { name: 'Ripristina carta originale' }).isDisabled());
+  assert.ok(await resetCard.isEnabled());
   assert.equal(await frameElement.count(), 0);
   await inspector.getByRole('button', { name: 'Carta', exact: true }).click();
   await cardText.fill('Testo indipendente');
@@ -442,7 +487,16 @@ try {
   await frameLock.waitFor();
   await choose(mirrorSelect, '');
   assert.equal(await template.getAttribute('data-value'), 'printing');
-  await inspector.getByRole('button', { name: 'Ripristina carta originale' }).click();
+  await choose(mirrorSelect, mirrorSource);
+  await resetCard.click();
+  assert.equal(await mirrorSelect.getAttribute('data-value'), '');
+  assert.equal(await template.getAttribute('data-value'), 'printing');
+  await page.waitForFunction(async ({ id, setId }) => {
+    const [project] = await window.proxy.projects();
+    const [parent, child] = (await window.proxy.open(project.id)).cards;
+    return parent.id === id && parent.frame.kind === 'color-set'
+      && parent.frame.set.id === setId && !child.backSide;
+  }, source);
   await choose(projectFrame, 'full-art');
   await bolt.click();
   await electron.evaluate(() => globalThis.setSmokeFiles('art'));

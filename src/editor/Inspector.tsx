@@ -177,7 +177,7 @@ export function Inspector({ card, renderedCard, back, sharedFrame, presets, upda
   </aside>;
 
   return <aside id="workspace-properties" className="inspector">
-    <div className="panel-title"><h2>{t('properties')}</h2><button className="icon-button" aria-label={t('resetCard')} title={t('resetCard')} disabled={mirrored || !isCardModified(card)} onClick={resetCard}><Icon name="reset" /></button></div>
+    <div className="panel-title"><h2>{t('properties')}</h2><button className="icon-button" aria-label={t('resetCard')} title={t('resetCard')} disabled={!isCardModified(card)} onClick={resetCard}><Icon name="reset" /></button></div>
     <div className="tabs" role="group" aria-label={t('cardProperties')}>
       {(['card', 'art', 'frame'] as const).map(item => <button key={item} aria-pressed={item === tab}
         onClick={() => { setTab(item); if (item !== 'frame' || (original && zone === 'art')) selectZone(undefined); }}>

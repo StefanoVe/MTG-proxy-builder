@@ -223,8 +223,7 @@ export function cardSide(card: Card, back: boolean): Card {
     editable: true, orientation: card.source.backOrientation ?? (/\b(battle|battaglia)\b/i.test(face?.type ?? '') ? 'landscape' as const : 'portrait' as const),
     backOrientation: undefined, images: { front: card.source.images.back, art: card.source.images.backArt },
     details: card.source.details ? { ...card.source.details, printedName: face?.name, faces: [] } : undefined };
-  return { ...card, ...defaultSide(source), textAlignOverrides: undefined, frameMirror: undefined,
-    ...card.backSide, source, backSide: undefined };
+  return { id: card.id, count: card.count, source, ...defaultSide(source), ...card.backSide };
 }
 
 /** Orientation describes the readable face, independently of the physical sheet slot. */

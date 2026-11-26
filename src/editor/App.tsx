@@ -27,7 +27,7 @@ import { Icon } from './Icon.js';
 import { TemplateEditor } from './TemplateEditor.js';
 import type { FrameEditorTab } from './TemplateEditor.js';
 import { ProjectFrameSelect } from './ProjectFrameSelect.js';
-import { pngArtZone } from './compose.js';
+import { detectedArtZone, pngArtZone } from './compose.js';
 
 type ExportMode = 'sheet' | 'cards';
 type Panel = 'deck' | 'batch' | 'print' | ExportMode | 'printings' | 'frames' | 'templates' | 'switch-project';
@@ -704,10 +704,19 @@ export function App() {
   const fullArtBase = project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase;
   const printingEditFrame = newTemplate(project.printingEditTemplate ?? 'full-art', fullArtBase);
 
-  function applyArtwork(assetId: string) {
+  async function applyArtwork(assetId: string) {
     if (!card || !selectedCard?.source.editable) return;
-    const convert = selectedCard.frame.kind === 'printing' && sideOrientation(card, back) === 'landscape';
+    let convert = selectedCard.frame.kind === 'printing' && sideOrientation(card, back) === 'landscape';
+    if (!convert && card.source.images.back && selectedRendered?.frame.kind === 'printing'
+      && !selectedRendered.frame.artZone) {
+      const area = await detectedArtZone(selectedRendered);
+      // Special printings may place text over the artwork. Redraw this face if the
+      // automatic replacement would reach the title or the text below the illustration.
+      convert = !area || area.y < defaultZones.title.y + defaultZones.title.h
+        || area.y + area.h > defaultZones.type.y;
+    }
     updateSide(card.id, { art: assetId, crop: defaultCrop, ...(convert && { frame: printingEditFrame }) });
+    if (convert) setZone(undefined);
   }
 
   const deckAddActions = <>
@@ -895,7 +904,7 @@ export function App() {
         void action(async () => {
           if (file.size > 32 * 1024 * 1024) throw new LocalizedError('imageSize');
           const asset = await window.proxy.dropped(new Uint8Array(await file.arrayBuffer()), file.name, false);
-          applyArtwork(asset.id);
+          await applyArtwork(asset.id);
           if (renderedCard?.frame.kind === 'printing') setZone(undefined);
         });
       }}>
@@ -938,7 +947,7 @@ export function App() {
             <button disabled={busy} onClick={() => void loadPrintingImages(selectedRendered!)}>{t('retryArtworkDownload')}</button>
           </div>}
           {selectedCard?.source.editable && <button className={`image-dropzone${draggingImage ? ' dragging' : ''}`} disabled={busy} onClick={() => void selectAssets(false).then(image => {
-            if (image) applyArtwork(image.id);
+            if (image) return applyArtwork(image.id);
           })}>{t(missingArtwork && !loadingImage ? 'chooseArtwork' : 'dropImage')}</button>}
           <div className="stage-meta">
             <span>63 × 88 mm</span>
@@ -975,7 +984,6 @@ export function App() {
           setNotice({ key: usesSharedFrame ? 'frameSettingsPasted' : 'framePasted' });
         } : undefined}
         resetCard={() => {
-          if (mirror) return;
           if (back) update(card.id, { backSide: undefined });
           else commit(value => ({ ...value, cards: value.cards.map(item => item.id === card.id ? { ...createCard(item.source, item.count), id: item.id, backSide: item.backSide } : item) }));
           setZone(undefined);
