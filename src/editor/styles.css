@@ -24,7 +24,7 @@ h2 { font-size: 15px; font-weight: 650; }
 h3 { font-size: 16px; }
 small { color: var(--muted); font-size: 12px; }
 button, input, select, textarea { font: inherit; color: inherit; }
-button, input:not([type="range"], [type="checkbox"]), select, textarea {
+button, input:not([type="range"], [type="checkbox"], [type="radio"]), select, textarea {
   min-height: 36px;
   border: 1px solid var(--rule);
   border-radius: 5px;
@@ -37,9 +37,9 @@ input:not([type="range"], [type="checkbox"]), select, textarea {
 }
 input::placeholder, textarea::placeholder { color: #888; }
 textarea { resize: vertical; }
-input[type="range"], input[type="checkbox"] { accent-color: var(--accent); }
+input[type="range"], input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 input[type="range"] { width: 100%; margin: 4px 0; }
-input[type="checkbox"] { width: 14px; height: 14px; flex: none; margin: 0; }
+input[type="checkbox"], input[type="radio"] { width: 14px; height: 14px; flex: none; margin: 0; }
 button {
   padding: 6px 12px;
   background: var(--surface);
@@ -273,8 +273,9 @@ input[readonly], textarea[readonly] { background: var(--rail); }
 .card-details { display: grid; gap: 12px; }
 .card-details p { white-space: pre-line; }
 .card-details section { display: grid; gap: 6px; border-top: 1px solid var(--rule); padding-top: 10px; }
-.fields .source { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
-.source > span { display: grid; min-width: 0; gap: 2px; overflow-wrap: anywhere; }
+.fields .source { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
+/* The edition name keeps a readable width; the buttons wrap below it instead of squeezing it into a vertical column. */
+.source > span { display: grid; flex: 1 1 100%; min-width: 0; gap: 2px; overflow-wrap: break-word; }
 .source strong { font-weight: 550; }
 .zone-fields { display: grid; grid-template-columns: 1fr 1fr; }
 .preset-form { display: grid; gap: 8px; border-top: 1px solid var(--rule); padding-top: 16px; }
@@ -670,3 +671,69 @@ button, input:not([type="range"], [type="checkbox"]), select, textarea { border-
 }
 
 .stats-divider-option { display: inline-flex; align-items: center; gap: 8px; vertical-align: middle; }
+
+/* Statistics inspector */
+.stats-settings { display: grid; min-inline-size: 0; gap: 12px; margin: 0; padding: 0; border: 0; }
+.stats-toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.stats-toolbar label, .stats-pair label { color: var(--muted); font-size: 12px; }
+.stats-toolbar .select-trigger { color: var(--ink); padding-inline: 8px; }
+.stats-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 8px; }
+.stats-pair input { text-align: center; font: 20px Georgia, serif; }
+.stats-slash { font: 22px/40px Georgia, serif; color: var(--muted); }
+.stats-navigation { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border-bottom: 1px solid var(--rule); }
+.stats-navigation button { min-width: 0; min-height: 36px; padding-inline: 4px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); background: transparent; font-size: 12px; }
+.stats-navigation button[aria-pressed="true"] { border-bottom-color: var(--accent); color: var(--ink); }
+.stats-controls { display: grid; min-width: 0; gap: 8px; }
+.stats-slider { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 0 8px; }
+.stats-slider output { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stats-slider input { grid-column: 1 / -1; min-width: 0; }
+.stats-padding { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.stats-color, .stats-image > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.stats-color.is-disabled { opacity: .58; }
+.stats-image-note { margin-block: 4px; color: var(--muted); font-size: 12px; }
+.stats-image-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.stats-settings .stats-color input[type=color] { width: 36px; min-height: 28px; padding: 4px; flex: none; }
+.stats-image input { max-width: 100%; font-size: 12px; }
+.stats-image img { width: 56px; height: 32px; object-fit: contain; }
+.stats-reset { justify-self: start; background: transparent; }
+
+/* Frame UX fixes: redo, status actions, deck advanced options, side editor panel. */
+.redo-button svg { transform: scaleX(-1); }
+.status-action { min-height: 24px; padding: 0 10px; margin-left: 8px; font-size: 13px; }
+.deck-advanced { border: 1px solid var(--rule); padding: 6px 10px; }
+.deck-advanced > summary { cursor: pointer; color: var(--muted); min-height: 28px; display: flex; align-items: center; }
+.deck-advanced[open] > summary { margin-bottom: 8px; }
+.deck-advanced > label + .muted { margin-top: 6px; font-size: 13px; }
+
+/* Deck panel: one summary row opens the deck settings modal. */
+.deck-style-summary {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  width: 100%; min-height: 48px; padding: 8px 12px; text-align: left;
+}
+.deck-style-summary > span { display: grid; min-width: 0; }
+.deck-style-summary small { color: var(--muted); font-size: 12px; }
+.deck-style-summary strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-settings { display: grid; gap: 16px; }
+.deck-settings .frame-picker.is-compact .frame-tiles { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+
+/* Frame focus mode: navigation | big card | controls. The deck and the inspector step aside. */
+.columns.is-frame-focus {
+  grid-template-columns: clamp(232px, 20vw, 280px) minmax(0, 1fr) clamp(300px, 26vw, 380px);
+  grid-template-areas: "nav stage controls";
+}
+.is-frame-focus > .editor-focus-nav { grid-area: nav; min-height: 0; }
+.is-frame-focus > .stage { grid-area: stage; }
+.is-frame-focus > .editor-focus-controls { grid-area: controls; min-height: 0; }
+.editor-preview-controls { display: grid; gap: 8px; }
+@media (max-width: 900px) {
+  .columns.is-frame-focus { grid-template-columns: 220px minmax(0, 1fr) 300px; }
+}
+@media (max-width: 620px) {
+  .columns.is-frame-focus { grid-template-columns: minmax(0, 1fr); grid-template-areas: "stage"; }
+  .columns.is-frame-focus > :is(.editor-focus-nav, .editor-focus-controls) { display: none; }
+  .columns.is-frame-focus[data-pane="deck"] { grid-template-areas: "nav"; }
+  .columns.is-frame-focus[data-pane="deck"] > .editor-focus-nav { display: block; }
+  .columns.is-frame-focus[data-pane="properties"] { grid-template-areas: "controls"; }
+  .columns.is-frame-focus[data-pane="properties"] > .editor-focus-controls { display: block; }
+  .columns.is-frame-focus:not([data-pane="preview"]) > .stage { display: none; }
+}

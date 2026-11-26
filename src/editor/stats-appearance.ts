@@ -25,9 +25,9 @@ const presets: Record<Exclude<StatsStyle, 'original'>, Preset> = {
 };
 
 export function drawStatsBox(ctx: CanvasRenderingContext2D, rect: Rect, style: Exclude<StatsStyle, 'original'>,
-  color: CardPaint, background: string) {
+  color: CardPaint, background: string, borderWidth?: number, opacity = 100) {
   const preset = presets[style];
-  const unit = Math.min(3.5, rect.h * .075, rect.w * .075);
+  const unit = Math.min(borderWidth ?? Math.min(3.5, rect.h * .075, rect.w * .075), rect.w / 5, rect.h / 5);
   const { x, y, w, h } = rect;
   const radius = Math.min(w, h) * preset.radius;
   const cut = Math.min(h * .42, w * .18);
@@ -51,10 +51,13 @@ export function drawStatsBox(ctx: CanvasRenderingContext2D, rect: Rect, style: E
   } else {
     ctx.roundRect(x + unit / 2, y + unit / 2, w - unit, h - unit, radius);
   }
+  ctx.save();
+  ctx.globalAlpha *= opacity / 100;
   ctx.fill();
+  ctx.restore();
   ctx.setLineDash(preset.dash?.map(length => length * unit) ?? []);
-  ctx.stroke();
-  if (style === 'double') {
+  if (unit > 0) ctx.stroke();
+  if (unit > 0 && style === 'double') {
     const inset = unit * 2.1;
     ctx.beginPath();
     ctx.roundRect(x + inset, y + inset, w - 2 * inset, h - 2 * inset, Math.max(0, radius - inset));

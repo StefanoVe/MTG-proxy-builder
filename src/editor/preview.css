@@ -1,0 +1,57 @@
+/* Preview extras: corner resize handles, keyboard focus, click-to-select hover, hold-to-compare. */
+
+.zone-guide .zone-resize-nw,
+.zone-guide .zone-resize-ne,
+.zone-guide .zone-resize-sw,
+.zone-guide .zone-resize-se { width: 24px; height: 24px; pointer-events: auto; }
+
+.zone-guide .zone-resize-se { left: auto; top: auto; right: -6px; bottom: -6px; cursor: nwse-resize; }
+.zone-guide .zone-resize-nw { left: -6px; top: -6px; right: auto; bottom: auto; cursor: nwse-resize; }
+.zone-guide .zone-resize-ne { left: auto; top: -6px; right: -6px; bottom: auto; cursor: nesw-resize; }
+.zone-guide .zone-resize-sw { left: -6px; top: auto; right: auto; bottom: -6px; cursor: nesw-resize; }
+
+.zone-guide .zone-resize-nw::before,
+.zone-guide .zone-resize-ne::before,
+.zone-guide .zone-resize-sw::before,
+.zone-guide .zone-resize-se::before { content: ''; position: absolute; width: 12px; height: 12px; background: var(--accent); border: 1px solid var(--ink); pointer-events: none; }
+.zone-guide .zone-resize-se::before { right: 0; bottom: 0; left: auto; top: auto; }
+.zone-guide .zone-resize-nw::before { left: 0; top: 0; right: auto; bottom: auto; }
+.zone-guide .zone-resize-ne::before { right: 0; top: 0; left: auto; bottom: auto; }
+.zone-guide .zone-resize-sw::before { left: 0; bottom: 0; right: auto; top: auto; }
+
+.zone-guide:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; box-shadow: 0 0 0 5px #0008; }
+
+.zone-hover, .zone-selected { position: absolute; pointer-events: none; box-sizing: border-box; }
+.zone-hover { outline: 1px dashed var(--ink); outline-offset: -1px; background: #ffffff0d; }
+.zone-selected { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.preview-wrap .card-preview.has-zone-hover { cursor: pointer; }
+
+.preview-compare-button {
+  position: absolute; left: 6px; top: 6px; z-index: 3;
+  padding: 3px 9px; border: 1px solid var(--control-rule); border-radius: 999px;
+  background: var(--surface); color: var(--ink);
+  font: inherit; font-size: 11px; line-height: 1.3; white-space: nowrap;
+  cursor: pointer; user-select: none; touch-action: none;
+  box-shadow: 0 2px 8px #0009;
+}
+.preview-compare-button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.preview-compare-button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* Horizontal handles: a zero-height row at `top: y%` holding an 8px hit strip, the 2px line and the grip. */
+.card-handle { position: absolute; left: 0; right: 0; height: 0; z-index: 2; touch-action: none; }
+.card-handle-hit { position: absolute; left: 0; right: 0; top: -4px; height: 8px; cursor: ns-resize; }
+.card-handle-line {
+  position: absolute; left: 0; right: 0; top: -1px; height: 2px; pointer-events: none;
+  background: var(--accent); box-shadow: 0 0 0 1px #0008;
+}
+.card-handle-grip {
+  position: absolute; left: 50%; top: 0; transform: translate(-50%, -50%);
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px 2px 7px;
+  border: 1px solid #0008; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: 12px; line-height: 1.3; white-space: nowrap; user-select: none;
+  cursor: ns-resize; box-shadow: 0 2px 8px #0009;
+}
+.card-handle-arrow { font-weight: 700; }
+.card-handle-grip:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }

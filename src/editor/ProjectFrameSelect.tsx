@@ -1,40 +1,48 @@
-import { Select } from './Select.js';
-import { isTemplate, templateNames } from '../shared/model.js';
-import type { Project } from '../shared/model.js';
+import { FramePicker, frameChoices } from './FramePicker.js';
+import type { FrameChoice } from './FramePicker.js';
+import type { Card, Project } from '../shared/model.js';
 import { useI18n } from './i18n.js';
+import './deck-frame.css';
 
-export function ProjectFrameSelect({ project, disabled, change, importFrame }: {
-  project: Project; disabled: boolean;
+/** The picker choice that shows the project frame. */
+function frameValue(frame: Project['frame']): FrameChoice {
+  if (!frame) return { kind: 'per-card' };
+  switch (frame.kind) {
+    case 'printing': return { kind: 'printing' };
+    case 'modern': case 'classic': return { kind: frame.kind, tone: frame.tone };
+    case 'template': return { kind: 'template', template: frame.template };
+    case 'color-set': return { kind: 'color-set', id: frame.id };
+    case 'preset': return { kind: 'preset', id: frame.id };
+    case 'custom': return { kind: 'custom' };
+  }
+}
+
+/** The project frame a picker choice stores. A custom frame is kept as it is. */
+function frameOf(choice: FrameChoice, current: Project['frame']): Project['frame'] {
+  switch (choice.kind) {
+    case 'per-card': return undefined;
+    case 'printing': return { kind: 'printing' };
+    case 'modern': case 'classic': return { kind: choice.kind, tone: choice.tone };
+    case 'template': return { kind: 'template', template: choice.template };
+    case 'color-set': return { kind: 'color-set', id: choice.id };
+    case 'preset': return { kind: 'preset', id: choice.id };
+    case 'custom': return current;
+  }
+}
+
+export function ProjectFrameSelect({ project, disabled, change, importFrame, sample }: {
+  project: Project; disabled: boolean; sample?: Card;
   change: (frame: Project['frame']) => void; importFrame: () => void;
 }) {
   const { t } = useI18n();
-  const { frame, frameSets, presets } = project;
-  const value = frame?.kind === 'template' ? frame.template
-    : frame?.kind === 'color-set' || frame?.kind === 'preset' ? `${frame.kind}/${frame.id}` : frame?.kind ?? '';
+  const { frame } = project;
+  const custom = frame?.kind === 'custom' ? frame : undefined;
+  const choices = frameChoices(project, { perCard: true, printing: true, custom: !!custom });
 
-  return <label>{t('projectFrame')}<Select value={value} disabled={disabled} onChange={event => {
-    const next = event.target.value;
-    if (!next) change(undefined);
-    else if (next === 'modern' || next === 'classic') change({ kind: next, tone: 'auto' });
-    else if (isTemplate(next)) change({ kind: 'template', template: next });
-    else if (next === 'import') importFrame();
-    else {
-      const [kind, id] = next.split('/');
-      if (kind === 'color-set' || kind === 'preset') change({ kind, id });
-    }
-  }}>
-    <option value="">{t('framePerCard')}</option>
-    <option value="modern">{t('normalFrame')}</option>
-    <option value="classic">{t('classicFrame')}</option>
-    {Object.keys(templateNames).filter(isTemplate).map(template =>
-      <option key={template} value={template}>{t(templateNames[template])}</option>)}
-    {frameSets && frameSets.length > 0 && <optgroup label={t('automaticColorSets')}>
-      {frameSets.map(set => <option key={set.id} value={`color-set/${set.id}`}>{set.name}</option>)}
-    </optgroup>}
-    {presets.length > 0 && <optgroup label={t('framePresets')}>
-      {presets.map(preset => <option key={preset.id} value={`preset/${preset.id}`}>{preset.name}</option>)}
-    </optgroup>}
-    {frame?.kind === 'custom' && <option value="custom">{t('projectCustomFrame')}</option>}
-    <option value="import">{t('importProjectFrame')}</option>
-  </Select></label>;
+  return <div className="deck-frame">
+    <FramePicker compact label={t('projectCardStyle')} project={project} sample={sample} choices={choices}
+      value={frameValue(frame)} custom={custom} disabled={disabled}
+      onChange={choice => change(frameOf(choice, frame))} />
+    <button type="button" className="deck-frame-import" disabled={disabled} onClick={importFrame}>{t('uploadPngFrame')}</button>
+  </div>;
 }

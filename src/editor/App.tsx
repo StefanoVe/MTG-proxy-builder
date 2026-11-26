@@ -3,12 +3,12 @@ import { Select } from './Select.js';
 import type { Locale, MessageKey } from '../shared/i18n.js';
 import { errorMessage, LocalizedError } from '../shared/i18n.js';
 import { useI18n } from './i18n.js';
-import { clearInvalidFrameMirrors, customFrameAppearance, frameAppearance, frameMirrorFor, newTemplate, presetFrame, projectCards, projectFrame, projectFrameResolver, templateAppearance } from '../shared/templates.js';
+import { clearInvalidFrameMirrors, usesProjectFrame, customFrameAppearance, frameAppearance, frameMirrorFor, newTemplate, presetFrame, projectCards, projectFrame, projectFrameResolver, templateAppearance } from '../shared/templates.js';
 import type { CustomFrame } from '../shared/templates.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { assetURL, blankCard, cardSide, createCard, createProject, defaultCrop, defaultZones, isCardModified, isTemplate, rebaseBackSide, sideFrameSettings, sideOrientation, sideState, templateNames } from '../shared/model.js';
-import type { Card, DeckEntry, FrameSet, Printing, Project, Rect, Template, TemplateAppearance } from '../shared/model.js';
+import { assetURL, blankCard, cardSide, frameColorNames, frameColors, createCard, createProject, defaultCrop, defaultZones, isCardModified, isTemplate, rebaseBackSide, sideFrameSettings, sideOrientation, sideState, templateNames } from '../shared/model.js';
+import type { Card, DeckEntry, FrameColor, FrameSet, Printing, Project, Rect, Template, TemplateAppearance, Zones } from '../shared/model.js';
 import { matchesCardSearch, parseDeckRows } from '../shared/deck.js';
 import { cardsWithSharedArt } from '../shared/shared-art.js';
 import { loadDeckCards } from '../shared/deck-import.js';
@@ -24,15 +24,18 @@ import { PrintChoices } from './PrintChoices.js';
 import { CardExportPanel } from './CardExportPanel.js';
 import type { CardExportDraft } from './CardExportPanel.js';
 import { Icon } from './Icon.js';
+import { ConfirmDialog } from './ConfirmDialog.js';
 import { TemplateEditor } from './TemplateEditor.js';
-import type { FrameEditorTab } from './TemplateEditor.js';
+import type { EditorPreviewState, FrameEditorTab } from './TemplateEditor.js';
+import { withStatsSample } from './StatsEditor.js';
+import { effectExtent } from './template-effects.js';
 import { ProjectFrameSelect } from './ProjectFrameSelect.js';
 import { detectedArtZone, pngArtZone } from './compose.js';
 
 type ExportMode = 'sheet' | 'cards';
-type Panel = 'deck' | 'batch' | 'print' | ExportMode | 'printings' | 'frames' | 'templates' | 'switch-project';
+type Panel = 'deck' | 'deck-settings' | 'batch' | 'print' | ExportMode | 'printings' | 'frames' | 'switch-project';
 type WorkspacePane = 'deck' | 'preview' | 'properties';
-type FrameSettings = Pick<Card, 'zoneOverrides' | 'hiddenZones' | 'dividerOverrides' | 'statsOverrides'>;
+type FrameSettings = Pick<Card, 'zoneOverrides' | 'hiddenZones' | 'dividerOverrides' | 'statsOverrides' | 'textAlignOverrides' | 'textStyleOverrides'>;
 const workspacePanes: WorkspacePane[] = ['deck', 'preview', 'properties'];
 const usesArt = (card: Card) => card.source.editable && card.frame.kind !== 'printing';
 const imageKey = (projectId: string, card: Card) => `${projectId}/${card.id}/${card.source.printingId}/${usesArt(card) ? 'art' : 'scan'}`;
@@ -65,7 +68,7 @@ function Dialog({ title, children, close, busy, wide, back }: {
   </dialog>;
 }
 
-const titles: Record<Panel, MessageKey> = { deck: 'importList', batch: 'batchEdit', print: 'exportProject', sheet: 'exportPdf', cards: 'exportCardImages', printings: 'chooseEdition', frames: 'chooseFrame', templates: 'projectFrameEditor', 'switch-project': 'unsavedChanges' };
+const titles: Record<Panel, MessageKey> = { deck: 'importList', batch: 'batchEdit', print: 'exportProject', sheet: 'exportPdf', cards: 'exportCardImages', printings: 'chooseEdition', frames: 'editionFrames', 'deck-settings': 'deckSettings', 'switch-project': 'unsavedChanges' };
 
 function DeckQuantity({ card, change }: { card: Card; change: (count: number) => void }) {
   const { t } = useI18n();
@@ -140,11 +143,19 @@ export function App() {
   const [exportRepair, setExportRepair] = useState<ExportMode>();
   const [editorTab, setEditorTab] = useState<FrameEditorTab>('full-art');
   const [customFrameId, setCustomFrameId] = useState('');
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorPreview, setEditorPreview] = useState<EditorPreviewState>({ statsSample: 'card' });
+  const [editorSampleId, setEditorSampleId] = useState('');
+  const [editorSampleColor, setEditorSampleColor] = useState<FrameColor>('U');
+  const [requestedZone, setRequestedZone] = useState<{ zone: keyof Zones; nonce: number }>();
+  const editorExample = useMemo(() => createCard({ ...blankCard, name: t('sampleName'), type: t('sampleType'), power: '2', toughness: '3', rules: t('sampleRules') }), [t]);
   const [copiedFrame, setCopiedFrame] = useState<{ frame: Card['frame']; settings: FrameSettings }>();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState<{ key: MessageKey; count?: number }>();
+  const [notice, setNotice] = useState<{ key: MessageKey; count?: number; template?: string; undo?: boolean }>();
+  const [confirmResetCard, setConfirmResetCard] = useState(false);
+  const [focusElement, setFocusElement] = useState<{ zone: FrameElement; nonce: number }>();
   const [busy, setBusy] = useState(false);
   const [draggingImage, setDraggingImage] = useState(false);
   const [query, setQuery] = useState('');
@@ -165,11 +176,12 @@ export function App() {
   const [deckProgress, setDeckProgress] = useState('');
   const [deckImported, setDeckImported] = useState(0);
   const [history, setHistory] = useState<Project[]>([]);
+  const [future, setFuture] = useState<Project[]>([]);
   const revision = useRef(0);
   const lastHistory = useRef(0);
   const card = project?.cards.find(item => item.id === active) ?? project?.cards[0];
   const sharedFrame = project ? projectFrame(project) : undefined;
-  const usesSharedFrame = !!sharedFrame && !!card?.source.editable;
+  const usesSharedFrame = !!sharedFrame && !!card && usesProjectFrame(cardSide(card, back), sharedFrame);
   const frameResolver = useMemo(() => project && projectFrameResolver(project), [project]);
   const renderedCard = useMemo(() => card && frameResolver ? frameResolver.resolve(card) : undefined, [card, frameResolver]);
   const mirror = card && frameMirrorFor(card, back);
@@ -189,12 +201,37 @@ export function App() {
       .map(item => frameResolver!.resolve(item))
       .flatMap(item => item.source.images.back && item.source.editable ? [item, cardSide(item, true)] : [item]).find(needsDownload);
   const loadingImages = !!nextImageCard || imageLoads.size > 0;
-  const editedCustom = panel === 'templates' && editorTab === 'custom' && project
+  const editedCustom = editorOpen && editorTab === 'custom' && project
     ? editableCustomFrame(project, customFrameId, mirror ? undefined : selectedCard) : undefined;
-  const editedAppearance = panel === 'templates' && project
+  const editedAppearance = editorOpen && project
     ? editorTab === 'custom' ? editedCustom ? frameAppearance(editedCustom) : customFrameAppearance(defaultZones)
       : projectTemplate(project, editorTab, card)
     : undefined;
+  const editorDefaultAppearance = editedAppearance && (editedCustom
+    ? customFrameAppearance((editedCustom.kind === 'color-set' ? editedCustom.set : editedCustom).zones,
+      (editedCustom.kind === 'color-set' ? editedCustom.set : editedCustom).textColor, (editedCustom.kind === 'color-set' ? editedCustom.set : editedCustom).fontFamily)
+    : editorTab === 'custom' ? customFrameAppearance(defaultZones) : templateAppearance({ kind: 'template', template: editorTab }));
+  const editorSamples = project ? projectCards(project).flatMap(item => {
+    const side = cardSide(item, false);
+    return side.source.editable ? [side] : [];
+  }) : [];
+  // 'active' follows the selected card; '' shows the generic sample card.
+  const editorBase = editorSamples.find(item => item.id === (editorSampleId === 'active' ? card?.id : editorSampleId));
+  const editorFrameFor = (appearance: TemplateAppearance): Card['frame'] => editedCustom
+    ? editedCustom.kind === 'color-set' ? { ...editedCustom, set: { ...editedCustom.set, appearance } } : { ...editedCustom, appearance }
+    : { kind: 'template', template: editorTab === 'custom' ? 'full-art' : editorTab, appearance };
+  const editorSampleCard = editorBase ?? { ...editorExample, art: renderedCard?.art ?? renderedCard?.source.images.art,
+    source: { ...editorExample.source, colors: editorSampleColor === 'C' ? [] : [editorSampleColor] },
+    fields: { ...editorExample.fields, mana: editorSampleColor === 'C' ? '{3}' : '{2}{' + editorSampleColor + '}' } };
+  const editorStageCard = editedAppearance && withStatsSample({ ...editorSampleCard, frame: editorFrameFor(editedAppearance), frameOverride: true, statsOverrides: undefined }, editorPreview.statsSample);
+  const editorCompareCard = editorStageCard && editorDefaultAppearance && { ...editorStageCard, frame: editorFrameFor(editorDefaultAppearance) };
+  const editorGuide = editorPreview.guide;
+  const focusMode = editorOpen && !!editedAppearance;
+  const shadingHandles = editorGuide?.kind === 'shading' && editedAppearance ? [
+    { id: 'topEffect', y: effectExtent(editedAppearance, 'topEffect'), label: t('shadingHandleTop') },
+    { id: 'bottomEffect', y: 100 - effectExtent(editedAppearance, 'bottomEffect'), label: t('shadingHandleBottom') }
+  ] : undefined;
+  const editorDecoration = editorGuide?.kind === 'decoration' ? editedAppearance?.decorations?.find(item => item.id === editorGuide.id) : undefined;
 
   useEffect(() => {
     if (!card || panel || pendingCardFocus.current !== card.id || !cardHeading.current) return;
@@ -211,6 +248,7 @@ export function App() {
     setSelected(new Set());
     setListQuery('');
     setHistory([]);
+    setFuture([]);
     lastHistory.current = 0;
     pendingCardFocus.current = null;
     setQuery('');
@@ -257,17 +295,21 @@ export function App() {
       const typing = target?.matches('input, textarea, select, [contenteditable="true"]');
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z' && !event.shiftKey) {
         if (!panel && history.length && !typing) { event.preventDefault(); undo(); }
+      } else if ((event.metaKey || event.ctrlKey) && (event.key.toLowerCase() === 'z' && event.shiftKey || event.key.toLowerCase() === 'y')) {
+        if (!panel && future.length && !typing) { event.preventDefault(); redo(); }
       } else if (event.key === '/' && !typing && !panel) {
         event.preventDefault(); openCatalogSearch(!!project?.cards.length);
       } else if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !panel && project?.cards.length && !busy && !loadingImages) {
         event.preventDefault(); setError(''); setPanel('print');
+      } else if (event.key === 'Escape' && !panel && editorOpen && !typing && !document.querySelector('dialog[open]')) {
+        closeEditor();
       } else if (event.key === 'Escape' && !panel && target === document.body) {
         setSelected(new Set());
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [history, panel, project, busy, loadingImages]);
+  }, [history, future, panel, project, busy, loadingImages, editorOpen]);
 
   function persist(next: Project) {
     const current = ++revision.current;
@@ -307,6 +349,7 @@ export function App() {
     const time = Date.now();
     if (!group || time - lastHistory.current > 800) setHistory(list => [...list.slice(-39), previous]);
     lastHistory.current = group ? time : 0;
+    setFuture([]);
     live.current = next;
     setProject(next);
     persist(next);
@@ -315,14 +358,31 @@ export function App() {
   function undo() {
     const last = history.at(-1);
     if (!last) return;
+    const current = live.current;
+    if (current) setFuture(list => [...list.slice(-39), current]);
     live.current = last;
     setProject(last);
     setHistory(history.slice(0, -1));
+    lastHistory.current = 0;
     setSelected(new Set());
     setZone(undefined);
     setBack(false);
     setNotice({ key: 'undoDone' });
     persist(last);
+  }
+
+  function redo() {
+    const next = future.at(-1);
+    if (!next || !live.current) return;
+    const current = live.current;
+    setHistory(list => [...list.slice(-39), current]);
+    setFuture(future.slice(0, -1));
+    lastHistory.current = 0;
+    live.current = next;
+    setProject(next);
+    setZone(undefined);
+    setNotice({ key: 'redoDone' });
+    persist(next);
   }
 
   function update(id: string, patch: Partial<Card>, group = false) {
@@ -580,6 +640,29 @@ export function App() {
     editTemplate('custom');
   }
 
+  function closeEditor() {
+    lastHistory.current = 0;
+    setEditorOpen(false);
+    setEditorPreview({ statsSample: 'card' });
+    setWorkspacePane('preview');
+  }
+
+  function moveShadingHandle(id: string, y: number) {
+    const effect = id === 'topEffect' ? 'topEffect' : 'bottomEffect';
+    const height = Math.round((effect === 'topEffect' ? y : 100 - y) * 2) / 2;
+    changeTemplate(previous => ({ ...previous, [effect]: { anchor: 'manual', height: Math.max(0, Math.min(100, height)) } }));
+  }
+
+  function editEditorGuide(rect: Rect) {
+    if (editorGuide?.kind === 'zone') {
+      const zone = editorGuide.zone;
+      changeTemplate(previous => ({ ...previous, zones: { ...previous.zones, [zone]: rect } }));
+    } else if (editorGuide?.kind === 'decoration') {
+      const id = editorGuide.id;
+      changeTemplate(previous => ({ ...previous, decorations: previous.decorations?.map(item => item.id === id ? { ...item, rect } : item) }));
+    }
+  }
+
   function selectEditorTab(next: FrameEditorTab) {
     lastHistory.current = 0;
     setEditorTab(next);
@@ -588,7 +671,9 @@ export function App() {
   function editTemplate(next: FrameEditorTab) {
     selectEditorTab(next);
     setError('');
-    setPanel('templates');
+    setEditorOpen(true);
+    setEditorSampleId('active');
+    setWorkspacePane('properties');
   }
 
   function changeTemplate(update: (appearance: TemplateAppearance) => TemplateAppearance) {
@@ -702,7 +787,38 @@ export function App() {
   const mirrorLabelCounts = new Map<string, number>();
   for (const { label } of mirrorLabels) mirrorLabelCounts.set(label, (mirrorLabelCounts.get(label) ?? 0) + 1);
   const fullArtBase = project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase;
+  const deckFrame = project.frame;
+  const deckStyleName = !deckFrame ? t('framePerCardStyle')
+    : deckFrame.kind === 'printing' ? t('frameOriginalScan')
+    : deckFrame.kind === 'modern' ? t('normalFrame') : deckFrame.kind === 'classic' ? t('classicFrame')
+    : deckFrame.kind === 'template' ? t(templateNames[deckFrame.template])
+    : deckFrame.kind === 'color-set' ? project.frameSets?.find(set => set.id === deckFrame.id)?.name ?? t('frameKindColorSet')
+    : deckFrame.kind === 'preset' ? project.presets.find(preset => preset.id === deckFrame.id)?.name ?? t('frameKindSavedPng')
+    : t('frameKindPng');
   const printingEditFrame = newTemplate(project.printingEditTemplate ?? 'full-art', fullArtBase);
+
+  function selectStageElement(element: FrameElement) {
+    setZone(element);
+    setFocusElement(previous => ({ zone: element, nonce: (previous?.nonce ?? 0) + 1 }));
+  }
+
+  function openDeckSettings() {
+    setError('');
+    setPanel('deck-settings');
+  }
+
+  function focusDeckStyle() {
+    openDeckSettings();
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('.deck-settings .frame-tile[aria-checked="true"]')?.focus());
+  }
+
+  function resetActiveCard() {
+    if (!card) return;
+    if (back) update(card.id, { backSide: undefined });
+    else commit(value => ({ ...value, cards: value.cards.map(item => item.id === card.id ? { ...createCard(item.source, item.count), id: item.id, backSide: item.backSide } : item) }));
+    setZone(undefined);
+    setConfirmResetCard(false);
+  }
 
   async function applyArtwork(assetId: string) {
     if (!card || !selectedCard?.source.editable) return;
@@ -777,6 +893,7 @@ export function App() {
           <option value="new">{t('newProject')}</option>
         </Select>
         <button className="icon-button" aria-label={t('undoLast')} title={t('undoShortcut')} disabled={!history.length || busy} onClick={undo}><Icon name="undo" /></button>
+        <button className="icon-button redo-button" aria-label={t('redoLast')} title={t('redoShortcut')} disabled={!future.length || busy} onClick={redo}><Icon name="undo" /></button>
       </div>
       <div className="output-tools">
         <Select className="language-select" aria-label={t('language')} title={t('language')}
@@ -791,7 +908,6 @@ export function App() {
         }}>
           <Icon name="settings" /><span>{t('frameEditor')}</span>
         </button>
-        <button className="icon-button" aria-label={t('frameSets')} title={t('frameSets')} disabled={busy} onClick={manageFrameSets}><Icon name="frames" /></button>
         <button className="icon-label primary" aria-keyshortcuts="Meta+Enter Control+Enter" title={t('exportShortcut')} disabled={!project.cards.length || busy || loadingImages} onClick={() => { setError(''); setPanel('print'); }}><Icon name="export" /><span>{t('exportProject')}</span></button>
       </div>
     </header>
@@ -800,30 +916,61 @@ export function App() {
         aria-pressed={workspacePane === pane} onClick={() => setWorkspacePane(pane)}>{t(pane)}</button>)}
       <button className="icon-button" type="button" aria-label={t('findCard')} title={t('findCard')} onClick={() => openCatalogSearch(!!card)}><Icon name="search" /></button>
     </nav>
-    <div className="columns" data-pane={workspacePane}>
-      <aside id="workspace-deck" className="deck">
+    <div className={`columns${focusMode ? ' is-frame-focus' : ''}`} data-pane={workspacePane}>
+      {focusMode ? <>
+<TemplateEditor tab={editorTab} selectTab={selectEditorTab} sampleCard={editorSampleCard}
+        previewControls={<div className="editor-preview-controls">
+            <label>{t('editorPreviewSample')}<Select value={editorBase?.id ?? ''} onChange={event => setEditorSampleId(event.target.value)}>
+              <option value="">{t('sampleCard')}</option>
+              {editorSamples.map(item => <option key={item.id} value={item.id}>{item.fields.name || t('untitledCard')}{item.source.set && ' · ' + item.source.set.toUpperCase()}</option>)}
+            </Select></label>
+            {!editorBase && <label>{t('sampleColor')}<Select value={editorSampleColor} onChange={event => setEditorSampleColor(event.target.value as FrameColor)}>
+              {frameColors.map(color => <option key={color} value={color}>{t(frameColorNames[color])}</option>)}
+            </Select></label>}
+        </div>}
+        appearance={editedAppearance} defaultAppearance={editorDefaultAppearance!} cards={projectCards(project)} fonts={systemFonts} change={changeTemplate}
+        customFrame={editedCustom} reset={resetEditedFrame}
+        customControls={editorTab === 'custom' && <>
+          <label>{t('frameSets')}<Select value={customFrameId} onChange={event => {
+            lastHistory.current = 0;
+            setCustomFrameId(event.target.value);
+          }}>
+            <option value="">{t('newSet')}</option>
+            {project.frameSets?.map(set => <option key={set.id} value={set.id}>{set.name}</option>)}
+            {cardSet && !project.frameSets?.some(set => set.id === cardSet.id)
+              && <option value={cardSet.id}>{cardSet.name}</option>}
+            {project.frame?.kind === 'custom' && <option value="project">{t('projectCustomFrame')}</option>}
+            {!mirror && selectedCard?.frame.kind === 'custom' && <option value="card">{t('existingPngFrame')}</option>}
+            {project.presets.map(preset => <option key={preset.id} value={'preset/' + preset.id}>{preset.name}</option>)}
+          </Select></label>
+          {editedCustom?.kind === 'custom'
+            ? <img className="single-frame-thumbnail" src={assetURL(editedCustom.asset)} alt={t('pngLoaded')} />
+            : <FrameSets key={customFrameId} sets={project.frameSets ?? []} existing={editedCustom?.set} scope={selection.length ? 'selection' : 'deck'}
+              count={sharedFrame ? 0 : batchCards.filter(item => item.source.editable && !item.frameMirror).length} save={(set, apply) => {
+                if (live.current?.id !== project.id) return;
+                saveColorSet(set, apply ? batchCards : []);
+                setZone(undefined);
+                setCustomFrameId(set.id);
+                setNotice({ key: apply ? 'setSavedApplied' : 'setSaved' });
+              }} />}
+        </>}
+        close={closeEditor} onPreview={setEditorPreview} requestedZone={requestedZone}
+        saving={saving} saveError={saveError} retry={() => persist(project)} />
+      </> : <aside id="workspace-deck" className="deck">
         <div className="panel-title deck-title">
           <h2>{t('deck')}</h2><span className="muted">{t(total === 1 ? 'copyCountOne' : 'copyCount', { count: total })}</span>
+          <button className="icon-button" aria-label={t('deckSettings')} title={t('deckSettings')} disabled={busy} onClick={openDeckSettings}><Icon name="settings" /></button>
           <button className="icon-button" aria-label={t(deckCollapsed ? 'expandDeck' : 'collapseDeck')} title={t(deckCollapsed ? 'expandDeck' : 'collapseDeck')} aria-expanded={!deckCollapsed} aria-controls="deck-content" onClick={() => setDeckCollapsed(value => !value)}><Icon name={deckCollapsed ? 'expand' : 'collapse'} /></button>
         </div>
         <div id="deck-content" className="deck-controls" hidden={deckCollapsed}>
-          <input aria-label={t('projectName')} key={`${project.id}/${project.name}`} defaultValue={project.name} maxLength={100}
-            onBlur={event => {
-              const name = event.target.value.trim() || t('untitledDeck');
-              event.target.value = name;
-              if (name !== project.name) commit(value => ({ ...value, name }));
-            }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
-          <ProjectFrameSelect project={project} disabled={busy} change={changeProjectFrame} importFrame={importProjectFrame} />
-          <label>{t('printingEditTemplate')}<Select value={printingEditFrame.template} disabled={busy} onChange={event => {
-            const template = event.target.value;
-            if (isTemplate(template)) commit(value => ({ ...value, printingEditTemplate: template }));
-          }}>
-            {Object.keys(templateNames).filter(isTemplate).map(template =>
-              <option key={template} value={template}>{t(templateNames[template])}</option>)}
-          </Select></label>
+          <button type="button" className="deck-style-summary" onClick={openDeckSettings} disabled={busy}>
+            <Icon name="frames" size={16} />
+            <span><small>{t('deckStyleSummary')}</small><strong>{deckStyleName}</strong></span>
+            <Icon name="settings" size={16} />
+          </button>
           <div className="deck-add">{deckAddActions}</div>
         </div>
-        {card && <div className="deck-catalog-search">{catalogSearch}</div>}
+        {card && !deckCollapsed && <div className="deck-catalog-search">{catalogSearch}</div>}
         {project.cards.length > 0 && <>
           <div className="deck-list-search">
             <input ref={listSearchRef} type="search" aria-label={t('filterAddedCards')} placeholder={t('filterAddedCards')} value={listQuery} onChange={event => setListQuery(event.target.value)} />
@@ -893,7 +1040,7 @@ export function App() {
           </ul>
           {!visibleCards.length && <p className="deck-list-empty" role="status">{t(modificationFilter === 'unmodified' ? 'noUnmodifiedCardsFound' : modificationFilter === 'modified' ? 'noModifiedCardsFound' : 'noAddedCardsFound')}</p>}
         </>}
-      </aside>
+      </aside>}
       <main id="workspace-preview" className="stage" onDragOver={event => { if (selectedCard?.source.editable && event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDraggingImage(true); } }} onDragLeave={event => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingImage(false);
       }} onDrop={event => {
@@ -908,7 +1055,17 @@ export function App() {
           if (renderedCard?.frame.kind === 'printing') setZone(undefined);
         });
       }}>
-        {card && renderedCard ? <>
+        {editorOpen && editorStageCard ? <>
+          <div className="stage-heading"><h1>{editorStageCard.fields.name || t('untitledCard')}</h1></div>
+          <div className="stage-sheet"><div className="stage-preview-actions"><PreviewGuidesButton visible={showPreviewGuides} toggle={togglePreviewGuides} /></div><div className="stage-current">
+            <Preview card={editorStageCard} handles={shadingHandles} onHandle={moveShadingHandle} showThirds={showPreviewGuides} hideWarning={!editorBase}
+              zone={editorGuide?.kind === 'zone' ? editorGuide.zone : undefined} guide={editorDecoration?.rect}
+              onZone={editorGuide ? editEditorGuide : undefined}
+              onSelectElement={zone => setRequestedZone(previous => ({ zone, nonce: (previous?.nonce ?? 0) + 1 }))}
+              selectedElement={editorGuide?.kind === 'zone' ? editorGuide.zone : undefined}
+              compareCard={editorCompareCard} compareLabel={t('editorCompareDefault')} />
+          </div></div>
+        </> : card && renderedCard ? <>
           <div className="stage-heading">
             <h1 ref={cardHeading} tabIndex={-1} title={card.fields.name || undefined}>{card.fields.name || t('untitledCard')}</h1>
             {exportRepair && <button className="icon-label" disabled={busy || loadingImages} onClick={() => {
@@ -931,6 +1088,7 @@ export function App() {
               <p role="status">{loadingImage ? t('loadingScan') : card.source.images.error ?? t('scanUnavailable')}</p>
               {!loadingImage && <button onClick={() => void loadPrintingImages(selectedRendered)}>{t('retryLoading')}</button>}
             </div> : <Preview card={selectedRendered!} showThirds={showPreviewGuides} zone={mirror || zone === 'artist' ? undefined : zone} onZone={mirror ? undefined : changeZone}
+              onSelectElement={mirror || !selectedCard?.source.editable ? undefined : selectStageElement} selectedElement={zone}
               hideArtworkWarning={missingArtwork}
               onCrop={selectedCard?.source.editable && (selectedRendered?.frame.kind !== 'printing' || !!selectedCard.art) ? crop => updateSide(card.id, { crop }, true) : undefined} />}
             </div>
@@ -964,7 +1122,9 @@ export function App() {
           <div className="deck-add empty-deck-add">{deckAddActions}</div>
         </div>}
       </main>
-      {card && selectedCard && selectedRendered ? <Inspector key={`${card.id}/${back}`} card={selectedCard} renderedCard={selectedRendered} back={back} sharedFrame={usesSharedFrame} presets={project.presets} frameSets={project.frameSets ?? []}
+      {focusMode ? null : card && selectedCard && selectedRendered ? <Inspector key={`${card.id}/${back}`} project={project} projectFrame={sharedFrame}
+        focusElement={focusElement} chooseEditionFrame={card.source.printingId ? () => choosePrinting('frames') : undefined}
+        focusDeckStyle={focusDeckStyle} card={selectedCard} renderedCard={selectedRendered} back={back} sharedFrame={usesSharedFrame} presets={project.presets} frameSets={project.frameSets ?? []}
         editCustomFrame={manageFrameSets}
         mirror={card.source.editable ? {
           value: mirror ? mirrorValue(mirror.cardId, mirror.back) : '',
@@ -973,8 +1133,8 @@ export function App() {
           change: changeFrameMirror
         } : undefined}
         copyFrame={canCopyFrame ? () => {
-          const { frame, zoneOverrides, hiddenZones, dividerOverrides, statsOverrides } = selectedRendered;
-          setCopiedFrame(structuredClone({ frame, settings: { zoneOverrides, hiddenZones, dividerOverrides, statsOverrides } }));
+          const { frame, zoneOverrides, hiddenZones, dividerOverrides, statsOverrides, textAlignOverrides, textStyleOverrides } = selectedRendered;
+          setCopiedFrame(structuredClone({ frame, settings: { zoneOverrides, hiddenZones, dividerOverrides, statsOverrides, textAlignOverrides, textStyleOverrides } }));
           setNotice({ key: 'frameCopied' });
         } : undefined}
         pasteFrame={copiedFrame && !mirror ? () => {
@@ -983,12 +1143,13 @@ export function App() {
           setZone(undefined);
           setNotice({ key: usesSharedFrame ? 'frameSettingsPasted' : 'framePasted' });
         } : undefined}
-        resetCard={() => {
-          if (back) update(card.id, { backSide: undefined });
-          else commit(value => ({ ...value, cards: value.cards.map(item => item.id === card.id ? { ...createCard(item.source, item.count), id: item.id, backSide: item.backSide } : item) }));
-          setZone(undefined);
+        resetCard={() => setConfirmResetCard(true)}
+        update={patch => {
+          const converts = selectedRendered.frame.kind === 'printing' && !mirror && patch.frame?.kind === 'template'
+            && ('fields' in patch || 'textAlignOverrides' in patch || 'statsOverrides' in patch || 'textStyleOverrides' in patch);
+          updateSide(card.id, patch, true);
+          if (converts) setNotice({ key: 'convertedToTemplate', template: t(templateNames[printingEditFrame.template]), undo: true });
         }}
-        update={patch => updateSide(card.id, patch, true)}
         selectAssets={selectAssets} choosePrinting={() => choosePrinting('printings')} zone={mirror ? undefined : zone} selectZone={setZone}
         fullArtBase={fullArtBase} printingEditFrame={printingEditFrame}
         savePreset={name => {
@@ -1001,13 +1162,19 @@ export function App() {
         }} />
         : <aside id="workspace-properties" className="inspector empty-inspector"><div className="panel-title"><h2>{t('properties')}</h2></div><p className="muted">{t('propertiesHelp')}</p></aside>}
     </div>
+    {confirmResetCard && card && <ConfirmDialog title={t(back ? 'resetCardBackTitle' : 'resetCardTitle', { name: card.fields.name || t('untitledCard') })}
+      confirmLabel={t('confirmReset')} cancelLabel={t('confirmCancel')} onCancel={() => setConfirmResetCard(false)} onConfirm={resetActiveCard}>
+      <p>{t('resetCardBody')}</p>
+    </ConfirmDialog>}
     <footer className="status" aria-live="polite">
       <span className="save-status">{saveError ? <><span className="error">{t('projectSaveFailed', { project: project.name })}</span> <button onClick={() => void persist(project)}>{t('retrySave')}</button></> : saving ? t('saving') : t('localProject')}</span>
-      <span className={error && !panel ? 'error' : ''}>{error && !panel ? error : busy && !panel ? t('loading') : notice && t(notice.key, notice.count === undefined ? undefined : { count: notice.count })}</span>
+      <span className={error && !panel ? 'error' : ''}>{error && !panel ? error : busy && !panel ? t('loading') : notice && <>
+        {t(notice.key, { ...(notice.count === undefined ? {} : { count: notice.count }), ...(notice.template ? { template: notice.template } : {}) })}
+        {notice.undo && history.length > 0 && <> <button type="button" className="status-action" onClick={undo}>{t('undoAction')}</button></>}
+      </>}</span>
     </footer>
-    {panel && <Dialog title={t(titles[panel])} busy={busy || (panel === 'switch-project' && saving)} wide={panel === 'cards' || panel === 'templates'}
+    {panel && <Dialog title={t(titles[panel])} busy={busy || (panel === 'switch-project' && saving)} wide={panel === 'cards' || panel === 'deck-settings'}
       back={panel === 'sheet' || panel === 'cards' ? () => setPanel('print') : undefined} close={() => {
-        if (panel === 'templates') lastHistory.current = 0;
         if (panel === 'switch-project') setSwitchTarget('');
         if (panel === 'print' || panel === 'sheet' || panel === 'cards') clearExportRepair();
         setError('');
@@ -1022,36 +1189,26 @@ export function App() {
           <button className="primary" disabled={saving} onClick={() => void retryProjectSwitch()}>{t('retrySave')}</button>
         </div>
       </>}
-      {panel === 'templates' && editedAppearance && <TemplateEditor tab={editorTab} selectTab={selectEditorTab}
-        showPreviewGuides={showPreviewGuides} togglePreviewGuides={togglePreviewGuides}
-        appearance={editedAppearance} activeCard={renderedCard} cards={projectCards(project)} fonts={systemFonts} change={changeTemplate}
-        customFrame={editedCustom} reset={resetEditedFrame}
-        customControls={editorTab === 'custom' && <>
-          <label>{t('frameSets')}<Select value={customFrameId} onChange={event => {
-            lastHistory.current = 0;
-            setCustomFrameId(event.target.value);
+      {panel === 'deck-settings' && <div className="deck-settings">
+        <label>{t('projectName')}<input key={`${project.id}/${project.name}`} defaultValue={project.name} maxLength={100}
+            onBlur={event => {
+              const name = event.target.value.trim() || t('untitledDeck');
+              event.target.value = name;
+              if (name !== project.name) commit(value => ({ ...value, name }));
+            }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></label>
+          <ProjectFrameSelect project={project} disabled={busy} sample={renderedCard} change={changeProjectFrame} importFrame={importProjectFrame} />
+          <details className="deck-advanced"><summary>{t('deckAdvancedOptions')}</summary>
+          <label>{t('printingEditTemplate')}<Select value={printingEditFrame.template} disabled={busy} onChange={event => {
+            const template = event.target.value;
+            if (isTemplate(template)) commit(value => ({ ...value, printingEditTemplate: template }));
           }}>
-            <option value="">{t('newSet')}</option>
-            {project.frameSets?.map(set => <option key={set.id} value={set.id}>{set.name}</option>)}
-            {cardSet && !project.frameSets?.some(set => set.id === cardSet.id)
-              && <option value={cardSet.id}>{cardSet.name}</option>}
-            {project.frame?.kind === 'custom' && <option value="project">{t('projectCustomFrame')}</option>}
-            {!mirror && selectedCard?.frame.kind === 'custom' && <option value="card">{t('existingPngFrame')}</option>}
-            {project.presets.map(preset => <option key={preset.id} value={'preset/' + preset.id}>{preset.name}</option>)}
+            {Object.keys(templateNames).filter(isTemplate).map(template =>
+              <option key={template} value={template}>{t(templateNames[template])}</option>)}
           </Select></label>
-          {editedCustom?.kind === 'custom'
-            ? <img className="single-frame-thumbnail" src={assetURL(editedCustom.asset)} alt={t('pngLoaded')} />
-            : <FrameSets key={customFrameId} sets={project.frameSets ?? []} existing={editedCustom?.set}
-              count={sharedFrame ? 0 : batchCards.filter(item => item.source.editable && !item.frameMirror).length} save={(set, apply) => {
-                if (live.current?.id !== project.id) return;
-                saveColorSet(set, apply ? batchCards : []);
-                setZone(undefined);
-                if (apply) setPanel(undefined);
-                else setCustomFrameId(set.id);
-                setNotice({ key: apply ? 'setSavedApplied' : 'setSaved' });
-              }} />}
-        </>}
-        saving={saving} saveError={saveError} retry={() => persist(project)} />}
+          <p className="muted">{t('printingEditTemplateHelp')}</p>
+          </details>
+        <div className="dialog-actions"><button className="primary" onClick={() => setPanel(undefined)}>{t('deckSettingsDone')}</button></div>
+      </div>}
       {panel === 'deck' && <>
         <div className="dialog-tools">
           <button disabled={busy} onClick={() => void action(async () => {

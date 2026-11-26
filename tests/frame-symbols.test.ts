@@ -53,7 +53,7 @@ test('every compound symbol uses the settings of its component symbols', () => {
 });
 
 test('automatic colors use one palette for text and frame surfaces', () => {
-  assert.equal(paint('{3}'), styles['3'].textColor);
+  assert.equal(paint('{3}'), styles.C.textColor);
   assert.equal(paint(''), styles.C.textColor);
   assert.equal(paint('{3}{R}'), styles.R.textColor);
   assert.deepEqual(paint('{W}{G}'), [styles.G.textColor, styles.W.textColor]);
@@ -65,6 +65,16 @@ test('automatic colors use one palette for text and frame surfaces', () => {
   assert.equal(palette.border.length, 5);
   assert.deepEqual(cardFrameColors(createCard({ ...blankCard, mana: '{2/W}' })), ['C', 'W']);
   assert.deepEqual(cardFrameColors(createCard({ ...blankCard, mana: '{W/P}' })), ['W', 'C']);
+});
+
+test('numeric and generic symbol overrides never define the color of a colorless card', () => {
+  const defaultColor = resolveCardColors(createCard({ ...blankCard, mana: '' })).cardColor;
+  for (const mana of ['{3}', '{X}']) {
+    const card = createCard({ ...blankCard, mana });
+    const token = mana.slice(1, -1);
+    assert.equal(resolveCardColors(card, { [token]: { textColor: '#123456' } }).cardColor, defaultColor, mana);
+    assert.equal(resolveCardColors(card, { C: { textColor: '#abcdef' } }).cardColor, '#abcdef', mana);
+  }
 });
 
 test('catalog colors follow each physical side and reflect changes to the mana cost', () => {

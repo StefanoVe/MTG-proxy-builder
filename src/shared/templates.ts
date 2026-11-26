@@ -64,7 +64,15 @@ export function projectFrame(project: Project): Card['frame'] | undefined {
     return presetFrame(preset);
   }
   if (frame?.kind === 'template' && !frame.appearance) return newTemplate(frame.template, project.fullArtBase);
+  if (frame?.kind === 'printing') return { kind: 'printing' };
   return frame;
+}
+
+/** Whether the shared project frame replaces this side's own frame. */
+export function usesProjectFrame(side: Card, frame: Card['frame'] | undefined): boolean {
+  if (!frame || !side.source.editable || side.frameOverride) return false;
+  // The "original printing" project frame only applies to catalog cards; custom cards keep their frame.
+  return frame.kind !== 'printing' || !!side.source.printingId;
 }
 
 export function frameMirrorFor(card: Card, back: boolean) {
@@ -98,7 +106,12 @@ export function clearInvalidFrameMirrors(project: Project): Project {
 
 export function projectFrameResolver(project: Project, frame = projectFrame(project)) {
   const cards = new Map(project.cards.map(card => [card.id, card]));
-  const apply = (side: Card) => withProjectTemplate(frame && side.source.editable ? { ...side, frame } : side, project.templateAppearances);
+  const apply = (side: Card) => {
+    if (!frame || !usesProjectFrame(side, frame)) return withProjectTemplate(side, project.templateAppearances);
+    // Keep a manually adjusted art window when the project asks for original printings.
+    const shared = frame.kind === 'printing' && side.frame.kind === 'printing' ? side.frame : frame;
+    return withProjectTemplate({ ...side, frame: shared }, project.templateAppearances);
+  };
 
   function sourceSide(card: Card, back: boolean, mirror: FrameMirror) {
     const source = mirrorSource(cards, card, back, mirror);

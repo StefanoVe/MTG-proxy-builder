@@ -13,8 +13,8 @@ import { drawStatsBox, drawStatsRule } from './stats-appearance.js';
 import { manaTokens, ruleWords } from '../shared/mana.js';
 import type { RuleRun } from '../shared/mana.js';
 import { drawSymbol, manaIcons } from './mana-icons.js';
-import { assetURL, cardSide, defaultZones, sideOrientation } from '../shared/model.js';
-import type { Card, FrameTextArea, Rect } from '../shared/model.js';
+import { assetURL, cardSide, defaultZones, resolveStatsAppearance, sideOrientation } from '../shared/model.js';
+import type { Card, FrameTextArea, Rect, StatsAppearance } from '../shared/model.js';
 import { findArtWindow, findTransparentArtWindow } from '../shared/art-window.js';
 import { pixels } from '../shared/print.js';
 
@@ -35,6 +35,32 @@ function loadImage(id: string) {
   });
   imageCache.set(id, loaded);
   return loaded;
+}
+
+const keyedImages = new Map<string, HTMLCanvasElement>();
+
+async function statsImage(id: string, transparentColor?: string | null) {
+  const image = await loadImage(id);
+  if (!transparentColor) return image;
+  const key = id + transparentColor;
+  const cached = keyedImages.get(key);
+  if (cached) return cached;
+  const canvas = document.createElement('canvas');
+  const scale = Math.min(1, 2048 / Math.max(image.width, image.height));
+  canvas.width = Math.max(1, Math.round(image.width * scale));
+  canvas.height = Math.max(1, Math.round(image.height * scale));
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const rgb = parseInt(transparentColor.slice(1), 16);
+  const [red, green, blue] = [rgb >> 16, rgb >> 8 & 255, rgb & 255];
+  for (let i = 0; i < pixels.data.length; i += 4) {
+    if (pixels.data[i] === red && pixels.data[i + 1] === green && pixels.data[i + 2] === blue) pixels.data[i + 3] = 0;
+  }
+  ctx.putImageData(pixels, 0, 0);
+  if (keyedImages.size >= 4) keyedImages.delete(keyedImages.keys().next().value!);
+  keyedImages.set(key, canvas);
+  return canvas;
 }
 
 export async function pngArtZone(id: string): Promise<Rect | undefined> {
@@ -85,6 +111,28 @@ function drawRect(ctx: CanvasRenderingContext2D, r: Rect, fill: CardPaint, radiu
   }
 }
 
+function drawOriginalStatsBox(ctx: CanvasRenderingContext2D, r: Rect, fill: CardPaint, radius: number,
+  style: StatsAppearance, border?: CardPaint) {
+  if (style.fill === undefined && style.borderColor === undefined && style.borderWidth === undefined && style.opacity === undefined && !border) {
+    drawRect(ctx, r, fill, radius, '#302b25');
+    return;
+  }
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(r.x, r.y, r.w, r.h, radius);
+  ctx.fillStyle = cardPaint(ctx, style.fill ?? fill, r.x, r.w);
+  ctx.save();
+  ctx.globalAlpha *= (style.opacity ?? 100) / 100;
+  ctx.fill();
+  ctx.restore();
+  if ((style.borderWidth ?? 3) > 0) {
+    ctx.lineWidth = style.borderWidth ?? 3;
+    ctx.strokeStyle = border ? cardPaint(ctx, border, r.x, r.w) : style.borderColor ?? '#302b25';
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function artwork(ctx: CanvasRenderingContext2D, image: HTMLImageElement, r: Rect, crop: Card['crop']) {
   const scale = Math.max(r.w / image.width, r.h / image.height) * crop.zoom;
   const w = image.width * scale;
@@ -97,18 +145,20 @@ function artwork(ctx: CanvasRenderingContext2D, image: HTMLImageElement, r: Rect
   ctx.restore();
 }
 
-type StatsPair = { power: string; toughness: string; divider?: Parameters<typeof drawStatsRule>[2] };
+type StatsPair = { power: string; toughness: string; divider?: Parameters<typeof drawStatsRule>[2]; image?: HTMLCanvasElement | HTMLImageElement; color?: CardPaint };
 
 function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: number, font: string, color: CardPaint,
-  align: CanvasTextAlign, customSize?: number, pair?: StatsPair) {
+  align: CanvasTextAlign, customSize?: number, pair?: StatsPair, outline?: string | null, dividerGap = 0) {
   if (!text || r.w < 2) return;
   const size = customSize ?? Math.min(max, r.h * 0.72);
   ctx.font = `${size}px ${font}`;
   ctx.textAlign = align;
   ctx.textBaseline = 'middle';
   const metrics = ctx.measureText(text);
-  const dividerWidth = pair && !pair.divider ? ctx.measureText('/').width / size : .62;
-  const measuredWidth = pair ? ctx.measureText(pair.power).width + ctx.measureText(pair.toughness).width + size * dividerWidth : metrics.width;
+  const dividerWidth = pair && !pair.divider && !pair.image ? ctx.measureText('/').width / size : .62;
+  const baseWidth = pair ? ctx.measureText(pair.power).width + ctx.measureText(pair.toughness).width + size * dividerWidth : metrics.width;
+  const gapForFit = pair ? Math.min(dividerGap, Math.max(0, (r.w - baseWidth) / 2)) : 0;
+  const measuredWidth = baseWidth + 2 * gapForFit;
   const fitted = Math.min(size, size * r.w / measuredWidth);
   const finalSize = customSize === undefined ? Math.max(12, fitted)
     : Math.min(fitted, size * r.h / (2 * Math.max(metrics.actualBoundingBoxAscent, metrics.actualBoundingBoxDescent)));
@@ -116,10 +166,22 @@ function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: numb
   const alignment = align === 'center' ? .5 : align === 'right' ? 1 : 0;
   const x = r.x + r.w * alignment;
   const y = r.y + r.h / 2;
+  function drawValue(value: string, left: number, top: number, maxWidth?: number) {
+    if (outline) {
+      ctx.save();
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = Math.max(1, finalSize * .09);
+      ctx.lineJoin = 'round';
+      ctx.strokeText(value, left, top, maxWidth);
+      ctx.restore();
+    }
+    ctx.fillText(value, left, top, maxWidth);
+  }
   if (pair) {
     const powerWidth = ctx.measureText(pair.power).width;
-    const gap = finalSize * dividerWidth;
-    const fullWidth = powerWidth + gap + ctx.measureText(pair.toughness).width;
+    const dividerWidthPx = finalSize * dividerWidth;
+    const extraGap = Math.min(dividerGap, Math.max(0, (r.w - powerWidth - dividerWidthPx - ctx.measureText(pair.toughness).width) / 2));
+    const fullWidth = powerWidth + dividerWidthPx + 2 * extraGap + ctx.measureText(pair.toughness).width;
     const scale = Math.min(1, r.w / fullWidth);
     const glyphHeight = Math.min(finalSize * .9, r.h);
     ctx.save();
@@ -129,18 +191,25 @@ function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: numb
     ctx.fillStyle = cardPaint(ctx, color, 0, fullWidth);
     const drawCenteredValue = (value: string, left: number) => {
       const { actualBoundingBoxAscent, actualBoundingBoxDescent } = ctx.measureText(value);
-      ctx.fillText(value, left, (actualBoundingBoxAscent - actualBoundingBoxDescent) / 2);
+      drawValue(value, left, (actualBoundingBoxAscent - actualBoundingBoxDescent) / 2);
     };
     drawCenteredValue(pair.power, 0);
-    if (pair.divider) drawStatsRule(ctx, { x: powerWidth, y: -glyphHeight / 2, w: gap, h: glyphHeight }, pair.divider);
-    else drawCenteredValue('/', powerWidth);
-    drawCenteredValue(pair.toughness, powerWidth + gap);
+    ctx.save();
+    if (pair.color) ctx.fillStyle = cardPaint(ctx, pair.color, powerWidth + extraGap, dividerWidthPx);
+    if (pair.image) {
+      const factor = Math.min(dividerWidthPx / pair.image.width, glyphHeight / pair.image.height);
+      const w = pair.image.width * factor, h = pair.image.height * factor;
+      ctx.drawImage(pair.image, powerWidth + extraGap + (dividerWidthPx - w) / 2, -h / 2, w, h);
+    } else if (pair.divider) drawStatsRule(ctx, { x: powerWidth + extraGap, y: -glyphHeight / 2, w: dividerWidthPx, h: glyphHeight }, pair.divider);
+    else drawCenteredValue('/', powerWidth + extraGap);
+    ctx.restore();
+    drawCenteredValue(pair.toughness, powerWidth + dividerWidthPx + 2 * extraGap);
     ctx.restore();
     return;
   }
   const textWidth = Math.min(r.w, ctx.measureText(text).width);
   ctx.fillStyle = cardPaint(ctx, color, x - textWidth * alignment, textWidth);
-  ctx.fillText(text, x, y, r.w);
+  drawValue(text, x, y, r.w);
 }
 
 function canvasFontFamily(family?: string) {
@@ -254,13 +323,21 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   const actualPrinting = card.frame.kind === 'printing' || !card.source.editable;
   const printedId = back ? card.source.images.back : actualPrinting ? card.source.images.front : undefined;
   const replacement = !back && actualPrinting && card.source.editable ? card.art : undefined;
-  const [art, sourceOverlay, extraOverlay, printed, icons, colorFrames, decorations] = await Promise.all([
+  const stats = card.fields.loyalty || card.fields.defense ||
+    (card.fields.power || card.fields.toughness ? `${card.fields.power}/${card.fields.toughness}` : '');
+  const showStats = !!stats && !hidden.has('stats');
+  const kind = card.fields.loyalty ? 'loyalty' : card.fields.defense ? 'defense' : 'pair';
+  const style = resolveStatsAppearance(appearance?.statsAppearance, card.statsOverrides, kind);
+  const useStatsImages = showStats && !actualPrinting && !back;
+  const [art, sourceOverlay, extraOverlay, printed, icons, colorFrames, boxImage, dividerImage, decorations] = await Promise.all([
     replacement || (!printedId && !actualPrinting && artId) ? loadImage(replacement ?? artId!) : undefined,
     !printedId && frameId ? loadImage(frameId) : undefined,
     !actualPrinting && appearance?.overlay ? loadImage(appearance.overlay) : undefined,
     printedId ? loadImage(printedId) : undefined,
     !actualPrinting && !back ? manaIcons(card.fields.mana, card.fields.rules, appearance?.symbolOverrides) : new Map<string, HTMLImageElement>(),
     set && !actualPrinting && !back ? Promise.all(colorFrameLayers(set, cardFrameColors(card)).map(loadImage)) : undefined,
+    useStatsImages && style.boxAsset ? statsImage(style.boxAsset, style.transparentColor) : undefined,
+    useStatsImages && style.dividerAsset && !card.fields.loyalty && !card.fields.defense ? statsImage(style.dividerAsset, style.transparentColor) : undefined,
     !actualPrinting && !back ? Promise.all((appearance?.decorations ?? []).filter(layer =>
       layer.opacity > 0 && !hiddenByCondition(layer.hideWhen, card.fields)).map(async decoration => ({
       decoration,
@@ -297,20 +374,18 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   }
   if (back || actualPrinting) throw new LocalizedError('missingScanHelp');
   const overlay = colorFrames && colorFrames.length > 1 ? blendColorFrames(colorFrames, width, height) : colorFrames?.[0] ?? sourceOverlay;
+  const autoTextColors = appearance?.autoTextColors ?? {};
+  const hasBoxPaint = style.fill !== undefined || style.borderColor !== undefined ||
+    style.borderWidth !== undefined || style.opacity !== undefined || !!autoTextColors.statsBox;
+  const styledStatsBox = style.box && style.box !== 'original' ? style.box
+    : hasBoxPaint && (overlay || extraOverlay || template) ? 'rounded' : undefined;
   const zones = cardZones(card);
   const { cardColor, border, panel } = resolveCardColors(card, appearance?.symbolOverrides);
   const textColor = appearance?.textColor ?? '#24211e';
-  const autoTextColors: Partial<Record<FrameTextArea, boolean>> = appearance?.autoTextColors ?? {};
   const colorForText = (area: FrameTextArea) => autoTextColors[area] ? cardColor : textColor;
   const font = canvasFontFamily(appearance?.fontFamily);
   const classic = card.frame.kind === 'classic';
   const illustration = box(zones.art);
-  const stats = card.fields.loyalty || card.fields.defense ||
-    (card.fields.power || card.fields.toughness ? `${card.fields.power}/${card.fields.toughness}` : '');
-  const showStats = !!stats && !hidden.has('stats');
-  const { box: statsBox, divider: statsDivider } = { ...appearance?.statsAppearance, ...card.statsOverrides };
-  const styledStatsBox = statsBox && statsBox !== 'original' ? statsBox : undefined;
-
   if (!overlay && !template) {
     ctx.save();
     ctx.scale(width / pixels.width, height / pixels.height);
@@ -324,7 +399,8 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
     if (!hidden.has('title')) drawRect(ctx, { x: 37, y: 42, w: baseWidth - 74, h: 69 }, panel, classic ? 1 : 12, '#302b25');
     if (!hidden.has('type')) drawRect(ctx, { x: 37, y: 623, w: baseWidth - 74, h: 64 }, panel, classic ? 1 : 10, '#302b25');
     if (!hidden.has('rules')) drawRect(ctx, { x: 37, y: 693, w: baseWidth - 74, h: 254 }, panel, classic ? 1 : 12, '#302b25');
-    if (showStats && !styledStatsBox) drawRect(ctx, templateBox(zones.stats), panel, classic ? 1 : 12, '#302b25');
+    if (showStats && !styledStatsBox && !boxImage)
+      drawOriginalStatsBox(ctx, templateBox(zones.stats), panel, classic ? 1 : 12, style, autoTextColors.statsBox ? cardColor : undefined);
     ctx.restore();
   }
   if (!hidden.has('art')) {
@@ -341,7 +417,7 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   }
 
   const title = box(zones.title);
-  const textSize = (area: FrameTextArea) => appearance?.textStyles?.[area]?.size;
+  const textSize = (area: FrameTextArea) => card.textStyleOverrides?.[area]?.size ?? appearance?.textStyles?.[area]?.size;
   const textAlign = (area: FrameTextArea) =>
     card.textAlignOverrides?.[area] ?? appearance?.textStyles?.[area]?.align ?? defaultFrameTextAlign(area);
   const drawLine = (area: FrameTextArea, text: string, rect: Rect, fallback = defaultFrameTextSizes[area]) =>
@@ -358,20 +434,50 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   if (!hidden.has('type')) drawLine('type', card.fields.type, box(zones.type));
   if (showStats) {
     const rect = box(zones.stats);
-    const rgb = parseInt(textColor.slice(1), 16);
+    const rgb = parseInt((style.ink ?? textColor).slice(1), 16);
     const lightText = .299 * (rgb >> 16) + .587 * (rgb >> 8 & 255) + .114 * (rgb & 255) >= 140;
     const color = appearance?.accent ?? (lightText ? cardColor : border);
-    const divider = statsDivider && statsDivider !== 'original' ? statsDivider : undefined;
-    const textRect = styledStatsBox
-      ? drawStatsBox(ctx, rect, styledStatsBox, color, lightText ? '#17191e' : '#faf6ed') : rect;
+    const divider = style.divider && style.divider !== 'original' ? style.divider : undefined;
+    let textRect = rect;
+    if (boxImage) {
+      ctx.save();
+      ctx.globalAlpha = (style.opacity ?? 100) / 100;
+      ctx.drawImage(boxImage, rect.x, rect.y, rect.w, rect.h);
+      ctx.restore();
+    } else if (styledStatsBox) {
+      textRect = drawStatsBox(ctx, rect, styledStatsBox, autoTextColors.statsBox ? cardColor : style.borderColor ?? color,
+        style.fill ?? (lightText ? '#17191e' : '#faf6ed'), style.borderWidth, style.opacity);
+    }
     const { power, toughness, loyalty, defense } = card.fields;
     const pair = !loyalty && !defense
-      ? { power, toughness, divider } : undefined;
-    fitLine(ctx, stats, textRect, defaultFrameTextSizes.stats, font, colorForText('stats'), textAlign('stats'), textSize('stats'), pair);
+      ? { power, toughness, divider, image: dividerImage, color: autoTextColors.statsDivider ? cardColor : style.ruleColor } : undefined;
+    const hasPadding = style.paddingTop !== undefined || style.paddingRight !== undefined ||
+      style.paddingBottom !== undefined || style.paddingLeft !== undefined;
+    if (hasPadding) {
+      // The box style may already reserve space for its outline or corners.
+      const left = Math.min(rect.x + rect.w, Math.max(rect.x, textRect.x + (style.paddingLeft ?? 0)));
+      const top = Math.min(rect.y + rect.h, Math.max(rect.y, textRect.y + (style.paddingTop ?? 0)));
+      const right = Math.max(left, Math.min(rect.x + rect.w, textRect.x + textRect.w - (style.paddingRight ?? 0)));
+      const bottom = Math.max(top, Math.min(rect.y + rect.h, textRect.y + textRect.h - (style.paddingBottom ?? 0)));
+      textRect = { x: left, y: top, w: right - left, h: bottom - top };
+    }
+    if (textRect.w > 0 && textRect.h > 0) {
+      if (hasPadding) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(textRect.x, textRect.y, textRect.w, textRect.h);
+        ctx.clip();
+      }
+      fitLine(ctx, stats, textRect, defaultFrameTextSizes.stats, font, autoTextColors.stats ? cardColor : style.ink ?? textColor, textAlign('stats'),
+        style.size ?? textSize('stats'), pair, style.outline, style.dividerGap);
+      if (hasPadding) ctx.restore();
+    }
   }
   const result = hidden.has('rules') || drawRules(ctx, card.fields.rules, box(zones.rules), colorForText('rules'), icons, font,
     textSize('rules') ?? defaultFrameTextSizes.rules, textAlign('rules'));
-  if (template) {
+  if (hidden.has('artist')) {
+    // The artist credit is hidden on this card.
+  } else if (template) {
     drawLine('artist', card.fields.artist, { x: width * 0.06, y: height * 0.965, w: width * 0.88, h: 23 });
   } else if (!overlay) {
     drawLine('artist', card.fields.artist, { x: width * .066, y: height * .924, w: width * .88, h: height * .025 }, 21);

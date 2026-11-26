@@ -1,0 +1,30 @@
+/* Shared controls for frame editing: image drop, optional color, confirmation. */
+.image-drop { display: grid; gap: 4px; }
+.image-drop-button {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 44px; padding: 8px 12px;
+  border: 1px dashed var(--muted); background: var(--worktop); color: var(--ink);
+}
+.image-drop.is-compact .image-drop-button { min-height: 36px; }
+.image-drop.is-dragging .image-drop-button { border-color: var(--accent); background: #ffffff14; }
+.image-drop-help { color: var(--muted); }
+
+.optional-color { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; }
+.optional-color > label { display: grid; gap: 2px; }
+.optional-color > label small { color: var(--muted); }
+.optional-color-controls { display: flex; align-items: center; gap: 8px; }
+.optional-color-state { color: var(--muted); font-size: 13px; min-width: 72px; text-align: right; }
+.optional-color-reset { min-height: 28px; padding: 0 8px; font-size: 13px; }
+.optional-color.is-disabled { opacity: .5; }
+
+.confirm-dialog { max-width: min(420px, calc(100vw - 32px)); padding: 20px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); }
+.confirm-dialog::backdrop { background: #0009; }
+.confirm-dialog h2 { font-size: 17px; margin-bottom: 8px; }
+.confirm-dialog-body { color: var(--muted); display: grid; gap: 6px; }
+.confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+button.danger { background: #8f2b2b; border-color: #8f2b2b; color: #fff; font-weight: 700; }
+button.danger:hover:not(:disabled) { background: #a83636; }
+
+/* Disabled range inputs must look disabled (review: slider disabilitato indistinguibile). */
+input[type=range]:disabled { opacity: .35; cursor: not-allowed; }
+
+.optional-color input[type=color] { width: 48px; height: 32px; padding: 3px 5px; flex: none; }

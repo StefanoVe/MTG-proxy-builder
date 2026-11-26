@@ -47,8 +47,9 @@ try {
   ));
   const { asset } = await ok('import_image', { path: artwork });
   const master = {
-    ...createCard({ ...blankCard, name: 'MCP Test', mana: '{R}' }, 2),
+    ...createCard({ ...blankCard, name: 'MCP Test', mana: '{R}', power: '2', toughness: '3' }, 2),
     art: asset.id,
+    statsOverrides: { boxAsset: asset.id, dividerAsset: asset.id, transparentColor: '#ffffff', paddingTop: 2, paddingLeft: 4 },
     frame: { kind: 'template', template: 'full-art' }
   };
   const child = {

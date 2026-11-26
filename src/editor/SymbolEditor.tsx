@@ -1,37 +1,68 @@
-import { useRef, useState } from 'react';
+import { useId, useState } from 'react';
 import { errorMessage } from '../shared/i18n.js';
 import { manaFiles } from '../shared/mana-catalog.js';
 import { assetURL } from '../shared/model.js';
-import type { SymbolStyle, TemplateAppearance } from '../shared/model.js';
-import { colorStops, symbolPaint } from './card-colors.js';
-import { manaComponents } from '../shared/mana.js';
+import type { SymbolOverrides, SymbolStyle, TemplateAppearance } from '../shared/model.js';
 import { importFrameArtwork } from './frame-artwork.js';
 import { useI18n } from './i18n.js';
-import { CardTextColorControls } from './CardTextColorControls.js';
 import { Icon } from './Icon.js';
+import { ImageDropzone } from './ImageDropzone.js';
 import { defaultSymbolURL } from './mana-icons.js';
-import { Select } from './Select.js';
+import './symbols.css';
 
-const symbols = [...new Set(['W', 'U', 'B', 'R', 'G', 'C', ...Object.keys(manaFiles)])];
+const colorSymbols = ['W', 'U', 'B', 'R', 'G', 'C'];
+const symbols = [...new Set([...colorSymbols, ...Object.keys(manaFiles)])];
+const numbersAndVariables = /^(\d+|X|Y|Z|½|∞)$/;
+
+const groups = [
+  { id: 'colors', label: 'symbolGroupColors' },
+  { id: 'numbers', label: 'symbolGroupNumbers' },
+  { id: 'hybrid', label: 'symbolGroupHybrid' },
+  { id: 'phyrexian', label: 'symbolGroupPhyrexian' },
+  { id: 'special', label: 'symbolGroupSpecial' }
+] as const;
+
+function groupOf(token: string) {
+  if (colorSymbols.includes(token)) return 'colors';
+  if (numbersAndVariables.test(token)) return 'numbers';
+  if (token === 'P' || token.endsWith('/P')) return 'phyrexian';
+  if (token.includes('/') && !token.includes('P') && !token.startsWith('C/') && !token.startsWith('2/')) return 'hybrid';
+  return 'special';
+}
+
+const symbolGroups = groups.map(group => ({
+  ...group, tokens: symbols.filter(token => groupOf(token) === group.id)
+})).filter(group => group.tokens.length);
+
+/** The image shown for a symbol: the custom asset when there is one, otherwise the default artwork. */
+export function symbolImageURL(overrides: SymbolOverrides | undefined, symbol: string) {
+  const custom = overrides?.[symbol]?.asset;
+  return custom ? assetURL(custom) : defaultSymbolURL(symbol);
+}
+
+/** How many symbols use a custom image. */
+export function customSymbolCount(appearance: TemplateAppearance) {
+  return Object.values(appearance.symbolOverrides ?? {}).filter(style => style?.asset).length;
+}
 
 export function SymbolEditor({ appearance, change }: {
   appearance: TemplateAppearance;
   change: (update: (appearance: TemplateAppearance) => TemplateAppearance) => void;
 }) {
   const { t, locale } = useI18n();
+  const searchId = useId();
+  const customId = useId();
   const [symbol, setSymbol] = useState(symbols[0]);
+  const [query, setQuery] = useState('');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
-  const input = useRef<HTMLInputElement>(null);
   const overrides = appearance.symbolOverrides;
-  const { asset, textColor } = overrides?.[symbol] ?? {};
-  const paint = symbolPaint(symbol, overrides);
-  const components = manaComponents(symbol);
+  const asset = overrides?.[symbol]?.asset;
   const token = '{' + symbol + '}';
-  const symbolImage = (item: string) => {
-    const custom = overrides?.[item]?.asset;
-    return custom ? assetURL(custom) : defaultSymbolURL(item);
-  };
+  const needle = query.replace(/[{}\s]/g, '').toLowerCase();
+  const visibleGroups = symbolGroups.map(group => ({
+    ...group, tokens: needle ? group.tokens.filter(item => item.toLowerCase().includes(needle)) : group.tokens
+  })).filter(group => group.tokens.length);
 
   function editStyle(values: Partial<SymbolStyle>) {
     change(current => {
@@ -57,49 +88,38 @@ export function SymbolEditor({ appearance, change }: {
   }
 
   return <fieldset className="template-settings symbol-editor" aria-label={t('symbols')}>
-    <label>{t('symbol')}<Select aria-label={t('symbol')} disabled={uploading} value={symbol}
-      renderOption={(item, label) => <span className="symbol-option">
-        <img src={symbolImage(item)} alt="" width="20" height="20" loading="lazy" />
-        <span>{label}</span>
-      </span>} onChange={event => {
-      setSymbol(event.target.value);
-      setError('');
-    }}>
-      {symbols.map(item => <option key={item} value={item}>{(overrides?.[item]?.asset ||
-        (overrides?.[item]?.textColor && manaComponents(item).length === 1))
-        ? t('customizedSymbol', { token: '{' + item + '}' })
-        : '{' + item + '}'}</option>)}
-    </Select></label>
-    <div className="symbol-editor-preview">
-      <img src={symbolImage(symbol)} alt="" width="40" height="40" />
-      <button type="button" disabled={uploading} onClick={() => input.current?.click()}>
-        <Icon name={asset ? 'art' : 'add'} size={16} />{' '}{t(uploading ? 'symbolImporting' : asset ? 'replaceSymbolImage' : 'addSymbolImage')}
-      </button>
-      {asset && <button type="button" disabled={uploading} onClick={() => { setError(''); editStyle({ asset: undefined }); }}>
-        {t('restoreSymbolImage')}
-      </button>}
+    <div className="symbol-search">
+      <Icon name="search" size={16} />
+      <input id={searchId} type="search" value={query} placeholder={t('symbolSearch')} aria-label={t('symbolSearch')}
+        onChange={event => setQuery(event.target.value)} />
     </div>
-    <input ref={input} type="file" hidden accept=".svg,.png,image/svg+xml,image/png" aria-label={t('symbolFile')} onChange={event => {
-      const file = event.target.files?.[0];
-      event.target.value = '';
-      if (file) void upload(file);
-    }} />
+    <div className="symbol-groups">
+      {visibleGroups.map(group => <section key={group.id} className="symbol-group" aria-label={t(group.label)}>
+        <h4>{t(group.label)}</h4>
+        <div className="symbol-grid">
+          {group.tokens.map(item => <button key={item} type="button" className="symbol-tile" disabled={uploading}
+            aria-label={t('symbolButtonLabel', { token: '{' + item + '}' })} aria-pressed={item === symbol}
+            aria-describedby={overrides?.[item]?.asset ? customId : undefined}
+            title={'{' + item + '}'} onClick={() => { setSymbol(item); setError(''); }}>
+            <img src={symbolImageURL(overrides, item)} alt="" width="24" height="24" loading="lazy" />
+            {overrides?.[item]?.asset && <span className="symbol-tile-dot" aria-hidden="true" />}
+          </button>)}
+        </div>
+      </section>)}
+      {!visibleGroups.length && <p className="symbol-empty">{t('symbolNoResults')}</p>}
+    </div>
+    <div className="symbol-editor-selected">
+      <div className="symbol-editor-preview">
+        <img src={symbolImageURL(overrides, symbol)} alt="" width="48" height="48" />
+        <span className="symbol-editor-token">{token}</span>
+        {asset && <button type="button" disabled={uploading} onClick={() => { setError(''); editStyle({ asset: undefined }); }}>
+          {t('restoreSymbolImage')}
+        </button>}
+      </div>
+      <ImageDropzone compact label={t('symbolReplaceImage')} help={t('symbolImageHelp')} busy={uploading}
+        onFiles={files => { if (files[0]) void upload(files[0]); }} />
+    </div>
+    <span id={customId} hidden>{t('symbolCustomized')}</span>
     {error && <p className="error" role="alert">{error}</p>}
-    <div className="symbol-editor-color">
-      <CardTextColorControls appearance={appearance} change={change} />
-      {typeof paint !== 'string' ? <div className="symbol-editor-color-row">
-        <span>{t('symbolSplitColor', { token, components: components.map(part => '{' + part + '}').join(' / ') })}</span>
-        <span className="symbol-color-swatch" aria-hidden="true" style={{
-          background: `linear-gradient(to right, ${colorStops(paint).map(([stop, color]) => `${color} ${stop * 100}%`).join(', ')})`
-        }} />
-      </div> : <div className="symbol-editor-color-row">
-        <label className="color-field template-color">{t('symbolTextColor', { token })}
-          <input type="color" value={paint}
-            onChange={event => editStyle({ textColor: event.target.value })} />
-        </label>
-        <button type="button" className="icon-button" aria-label={t('restoreSymbolTextColor')} title={t('restoreSymbolTextColor')}
-          disabled={!textColor} onClick={() => editStyle({ textColor: undefined })}><Icon name="reset" size={16} /></button>
-      </div>}
-    </div>
   </fieldset>;
 }

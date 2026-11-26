@@ -1,4 +1,15 @@
-export const messages = {
+import { statsMessages } from './messages-stats.ts';
+import { symbolsMessages } from './messages-symbols.ts';
+import { visibilityMessages } from './messages-visibility.ts';
+import { previewMessages } from './messages-preview.ts';
+import { framesetsMessages } from './messages-framesets.ts';
+import { pickerMessages } from './messages-picker.ts';
+import { inspectorMessages } from './messages-inspector.ts';
+import { editorMessages } from './messages-editor.ts';
+import { appMessages } from './messages-app.ts';
+import { sharedMessages } from './messages-shared.ts';
+
+const baseMessages = {
   backToExport: ["Torna alle opzioni di esportazione", "Back to export options"],
   close: ["Chiudi", "Close"],
   updateAvailable: ["Versione {version} disponibile", "Version {version} available"],
@@ -115,6 +126,36 @@ export const messages = {
   type: ["Tipo", "Type"],
   text: ["Testo", "Text"],
   stats: ["Statistiche", "Stats"],
+  statsSectionBox: ["Riquadro", "Box"],
+  statsSectionDivider: ["Divisore", "Divider"],
+  statsSectionSpacing: ["Spaziatura", "Spacing"],
+  statsEditKind: ["Stile da modificare", "Style to edit"],
+  statsKindBase: ["Base/condiviso", "Base/shared"],
+  statsKindPair: ["Forza/costituzione", "Power/toughness"],
+  statsKindLoyalty: ["Fedeltà", "Loyalty"],
+  statsKindDefense: ["Difesa", "Defense"],
+  statsInheritKind: ["Come nello stile base/condiviso", "Use base/shared style"],
+  statsDividerGap: ["Spazio extra ai lati del separatore", "Extra space on each side of the divider"],
+  statsInk: ["Colore dei valori", "Value color"],
+  statsRuleColor: ["Colore del separatore", "Separator color"],
+  statsBorderColor: ["Colore del bordo", "Border color"],
+  statsFill: ["Colore dello sfondo", "Background color"],
+  statsKey: ["Rendi trasparente questo colore nelle immagini", "Make this color transparent in images"],
+  statsOutline: ["Contorno dei valori", "Outline values"],
+  statsSize: ["Dimensione dei valori", "Value size"],
+  statsBorderWidth: ["Spessore del bordo", "Border width"],
+  statsOpacity: ["Opacità dello sfondo", "Background opacity"],
+  statsPaddingTop: ["Spaziatura interna superiore", "Top padding"],
+  statsPaddingRight: ["Spaziatura interna destra", "Right padding"],
+  statsPaddingBottom: ["Spaziatura interna inferiore", "Bottom padding"],
+  statsPaddingLeft: ["Spaziatura interna sinistra", "Left padding"],
+  statsBoxImageReplacesStyle: ["Il riquadro usa il bordo e lo sfondo dell’immagine.", "The box uses the border and background from the image."],
+  statsDividerImageReplacesStyle: ["L’immagine sostituisce stile e colore del separatore.", "The image replaces the divider style and color."],
+  statsUseInheritedImage: ["Usa immagine della cornice", "Use frame image"],
+  statsBoxImage: ["Immagine del riquadro (SVG o PNG)", "Box image (SVG or PNG)"],
+  statsDividerImage: ["Immagine del separatore (SVG o PNG)", "Separator image (SVG or PNG)"],
+  statsRemoveImage: ["Rimuovi immagine", "Remove image"],
+  statsReset: ["Ripristina aspetto statistiche", "Reset stats appearance"],
   statsBoxStyle: ["Stile del riquadro", "Box style"],
   dividerLozenge: ["Losanga centrale", "Center diamond"],
   dividerSlash: ["Barra obliqua", "Forward slash"],
@@ -234,18 +275,15 @@ export const messages = {
   frameChangesHelp: ["Le modifiche si applicano subito alle carte che la usano, anche quelle future.", "Changes apply immediately to all cards that use this frame, including future cards."],
   livePreview: ["Anteprima live", "Live preview"],
   preview: ["Anteprima", "Preview"],
+  statsPreviewValues: ["Valori di prova in anteprima", "Preview test values"],
+  statsCardValues: ["Valori della carta", "Card values"],
   sampleCard: ["Carta di esempio", "Sample card"],
   sampleColor: ["Colore di esempio", "Sample color"],
   customization: ["Personalizzazione", "Customization"],
   frameControls: ["Controlli cornice", "Frame controls"],
   typography: ["Tipografia", "Typography"],
-  titleColorFromCard: ["Colore del titolo dalla carta", "Use card color for the title"],
-  bodyColorFromCard: ["Colore del corpo dalla carta", "Use card color for the body"],
-  typeColorFromCard: ["Colore del tipo dalla carta", "Use card color for the type line"],
   shadeAndBlur: ["Ombra e sfocatura", "Shading and blur"],
   shadeColor: ["Colore dell’ombra", "Shade color"],
-  dividerColorFromCard: ["Colore dei divisori dalla carta", "Use card color for dividers"],
-  dividerColor: ["Colore dei divisori", "Divider color"],
   dividerLength: ["Lunghezza dei divisori", "Divider length"],
   dividerWeight: ["Spessore dei divisori", "Divider thickness"],
   dividerPadding: ["Distanza dei divisori dal testo", "Divider distance from text"],
@@ -502,4 +540,19 @@ export const messages = {
   bottomEffectBlur: ["Sfocatura inferiore", "Bottom blur"],
   archiveFilename: ["{name}-carte.zip", "{name}-cards.zip"],
   archiveDefaultName: ["Carte", "Cards"],
+} as const;
+
+/** Feature modules may add keys or override base wording; later modules win. */
+export const messages = {
+  ...baseMessages,
+  ...statsMessages,
+  ...symbolsMessages,
+  ...visibilityMessages,
+  ...previewMessages,
+  ...framesetsMessages,
+  ...pickerMessages,
+  ...inspectorMessages,
+  ...editorMessages,
+  ...appMessages,
+  ...sharedMessages,
 } as const;

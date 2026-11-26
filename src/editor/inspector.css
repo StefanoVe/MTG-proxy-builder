@@ -1,0 +1,55 @@
+.inspector .tabs [role="tab"] { color: var(--muted); }
+.inspector .tabs [role="tab"][aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+
+.inspector .scope-choice { display: grid; gap: 8px; min-inline-size: 0; margin: 0; padding: 12px; border: 1px solid var(--rule); border-radius: 5px; }
+.inspector .scope-choice legend { padding-inline: 4px; font-weight: 600; }
+.inspector .scope-link { justify-self: start; min-height: 0; margin: -4px 0 0 26px; padding: 0; border: 0; background: none; color: var(--accent); font-size: 12px; text-decoration: underline; }
+
+.inspector .mana-tokens { display: flex; flex-wrap: wrap; gap: 4px; }
+.inspector .mana-token { min-width: 36px; min-height: 28px; padding: 2px 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* Artwork tab */
+.inspector .art-adjust { display: grid; gap: 8px; }
+.inspector .zoom-visual { display: grid; place-items: center; width: 30px; height: 26px; border: 1px solid currentColor; border-radius: 2px; }
+.inspector .zoom-visual > span { display: block; border: 1px solid currentColor; background: color-mix(in srgb, currentColor 18%, transparent); }
+.inspector .precise-adjust summary { min-height: 28px; display: flex; align-items: center; cursor: pointer; color: var(--muted); font-size: 13px; }
+.inspector .precise-adjust[open] summary { color: var(--ink); }
+.inspector .precise-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 8px; }
+
+/* Text size and alignment visuals */
+.inspector .size-visual { font-size: 14px; font-weight: 600; line-height: 1; }
+.inspector .size-visual.is-inherit { padding: 2px 6px; border: 1px dashed currentColor; border-radius: 3px; }
+
+.inspector .element-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+.inspector .element-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 10px; border: 1px solid var(--rule); border-radius: 999px; background: none; font-size: 13px; }
+.inspector .element-toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+
+/* Per-card tweaks read as a list of blocks, each with a small heading. */
+.inspector .element-settings,
+.inspector .tweaks-body { display: grid; gap: 8px; }
+.inspector .tweak-block { display: grid; gap: 8px; min-width: 0; }
+.inspector .tweak-block + .tweak-block { padding-top: 8px; border-top: 1px solid var(--rule); }
+.inspector .tweak-heading { margin: 0; color: var(--muted); font-size: 12px; font-weight: 600; }
+
+.inspector .tweaks { display: grid; gap: 8px; border: 1px solid var(--rule); border-radius: 5px; }
+.inspector .tweaks-toggle { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 42px; padding: 10px 12px; border: 0; border-radius: 5px; background: none; text-align: start; font-weight: 600; }
+.inspector .tweaks-chevron { display: inline-flex; transition: transform .15s; }
+.inspector .tweaks-toggle[aria-expanded="false"] .tweaks-chevron { transform: rotate(-90deg); }
+.inspector .tweaks-body { padding: 0 12px 12px; }
+.inspector .tweaks-body .template-settings { margin: 0; }
+.inspector .tweaks-body .template-settings legend { color: var(--muted); font-size: 12px; font-weight: 600; }
+
+.inspector .state-tag { margin-inline-start: auto; font-size: 12px; }
+.inspector .preset-form h4 { margin: 0; font-size: 13px; font-weight: 600; }
+
+/* unslop pass: one border for the tweaks, no nested boxes, quiet status marks. */
+.inspector .tweaks-body > .tweak-block, .inspector .element-settings { padding-top: 10px; border-top: 1px solid var(--rule); }
+.inspector .tweaks-body > .tweak-block:first-child { padding-top: 0; border-top: 0; }
+.inspector .tweaks-count { margin-inline-start: auto; color: var(--accent); font-size: 12px; font-weight: 600; }
+.inspector .state-tag { color: var(--accent); }
+.inspector .element-settings { display: grid; gap: 8px; }
+.inspector .exact-values > summary { cursor: pointer; color: var(--muted); font-size: 13px; min-height: 28px; display: flex; align-items: center; }
+.inspector .exact-values[open] > summary { margin-bottom: 6px; }
+.inspector .frame-clipboard { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.inspector .frame-clipboard button { min-height: 32px; font-size: 13px; }
+.inspector .preset-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }

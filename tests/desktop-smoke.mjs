@@ -16,6 +16,7 @@ const launch = () => _electron.launch({
   executablePath: process.env.MTG_SMOKE_EXECUTABLE ? resolve(process.env.MTG_SMOKE_EXECUTABLE) : require('electron'),
   args: [...(process.env.MTG_SMOKE_EXECUTABLE ? [] : ['.']), '--user-data-dir=' + profile], cwd, timeout: 15000
 });
+const undoKey = process.platform === 'darwin' ? 'Meta' : 'Control';
 let electron = await launch();
 try {
   let page = await electron.firstWindow();
@@ -23,6 +24,34 @@ try {
   const choose = async (control, value) => {
     await control.click();
     await page.locator(`.select-menu [role=option][data-value=${JSON.stringify(value)}]`).click();
+  };
+  // Deck style tiles live in the deck settings dialog ("Impostazioni del mazzo"), opened from the deck panel.
+  const deckSettings = () => page.getByRole('dialog', { name: 'Impostazioni del mazzo', exact: true });
+  const openDeckSettings = async () => {
+    if (!await deckSettings().isVisible()) await page.getByRole('button', { name: 'Impostazioni del mazzo', exact: true }).click();
+  };
+  const deckStyle = () => deckSettings().getByRole('radiogroup', { name: 'Stile delle carte', exact: true });
+  const chooseDeckStyle = async name => {
+    await openDeckSettings();
+    await deckStyle().getByRole('radio', { name, exact: true }).click();
+    await deckSettings().getByRole('button', { name: 'Fatto', exact: true }).click();
+    await deckSettings().waitFor({ state: 'hidden' });
+  };
+  // Frame tiles (role=radio) of the inspector frame tab.
+  const frameStyle = () => page.locator('#workspace-properties').getByRole('radiogroup', { name: 'Cornice', exact: true });
+  const chooseFrame = name => frameStyle().getByRole('radio', { name, exact: true }).click();
+  const frameIs = name => frameStyle().getByRole('radio', { name, exact: true }).isChecked();
+  const pickTile = (group, name) => group.getByRole('radio', { name, exact: true }).click();
+  // Sections of the frame editor are the tabs of its focus-mode navigation.
+  const editorSection = name => page.locator('.editor-section-list').getByRole('tab', { name: new RegExp(`^${name}\\b`) });
+  // React updates are asynchronous: poll a read until the check passes.
+  const until = async (read, check) => {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const value = await read();
+      if (check(value)) return value;
+      await page.waitForTimeout(50);
+    }
+    throw new Error('Condition not reached');
   };
   const language = page.locator('.language-select .select-trigger');
   await choose(language, 'en');
@@ -48,7 +77,7 @@ try {
   assert.equal(await page.locator('html').getAttribute('lang'), 'it');
   await page.screenshot({ path: join(paths, 'empty.png') });
   await page.getByRole('button', { name: 'Aggiungi carta vuota' }).click();
-  await choose(page.locator('.deck').getByLabel('Cornice del progetto'), 'full-art');
+  await chooseDeckStyle('Full art');
   await page.getByRole('button', { name: 'Esporta', exact: true }).click();
   await page.getByRole('button', { name: 'PDF per la stampa' }).click();
   const pdfSetup = page.getByRole('dialog', { name: 'Esporta PDF' });
@@ -191,43 +220,60 @@ try {
     return canvas?.width === 744 && Math.abs(canvas.getContext('2d').getImageData(0, 0, 1, 1).data[1] - 56) < 6;
   });
   await input.fill('');
-  await page.getByRole('button', { name: 'Edizioni' }).click();
+  await page.getByRole('button', { name: 'Edizioni', exact: true }).click();
   await page.getByRole('button', { name: /Magic 2011/ }).click();
   await page.locator('.source').getByText('Magic 2011').waitFor();
   const inspector = page.locator('#workspace-properties');
-  const frameTab = inspector.getByRole('button', { name: 'Cornice', exact: true });
-  const cardTab = inspector.getByRole('button', { name: 'Carta', exact: true });
-  const frameElement = inspector.getByLabel('Modifica elemento');
-  const cardAlignment = inspector.getByLabel('Allineamento orizzontale');
+  const frameTab = inspector.getByRole('tab', { name: 'Cornice', exact: true });
+  const cardTab = inspector.getByRole('tab', { name: 'Carta', exact: true });
+  const elementToggle = name => inspector.locator('.element-toggles').getByRole('button', { name, exact: true });
+  // Element toggles select one element; clicking the pressed one would clear it, so only click when needed.
+  const pressElement = async name => {
+    if (await elementToggle(name).getAttribute('aria-pressed') !== 'true') await elementToggle(name).click();
+  };
+  // Alignment tiles of the selected text element; "Come nella cornice" is the inherited value.
+  const alignGroup = () => inspector.getByRole('radiogroup', { name: 'Allineamento', exact: true });
+  const chooseAlign = name => alignGroup().getByRole('radio', { name, exact: true }).click();
+  const alignIs = name => alignGroup().getByRole('radio', { name, exact: true }).isChecked();
+  // The exact position fields sit in a collapsed "Posizione esatta" disclosure.
   const zoneX = inspector.locator('.zone-fields').getByRole('spinbutton', { name: 'X', exact: true });
-  assert.equal(await cardAlignment.count(), 0);
+  const openExactValues = async () => {
+    const details = inspector.locator('details.exact-values');
+    await details.waitFor();
+    if (!await details.evaluate(node => node.open)) await details.locator('summary').click();
+  };
+  assert.equal(await alignGroup().count(), 0);
   await frameTab.click();
-  const template = page.getByLabel(/^Template/);
-  assert.equal(await template.getAttribute('data-value'), 'printing');
-  await choose(frameElement, 'rules');
+  assert.equal(await frameIs('Originale (scansione)'), true);
+  await pressElement('Testo');
   await inspector.getByText('Se cambi l’allineamento del testo, l’editor applica il template Full art.').waitFor();
   assert.equal(await zoneX.count(), 0);
-  await choose(cardAlignment, 'right');
-  assert.equal(await template.getAttribute('data-value'), 'full-art');
-  assert.equal(await frameElement.getAttribute('data-value'), 'rules');
-  assert.equal(await cardAlignment.getAttribute('data-value'), 'right');
+  await chooseAlign('Destra');
+  assert.equal(await frameIs('Full art'), true);
+  assert.equal(await elementToggle('Testo').getAttribute('aria-pressed'), 'true');
+  assert.equal(await alignIs('Destra'), true);
+  await openExactValues();
   await zoneX.waitFor();
-  await choose(cardAlignment, '');
-  await choose(template, 'printing');
-  const firstEditFrame = page.locator('.deck').getByLabel('Cornice alla prima modifica');
+  await chooseAlign('Come nella cornice');
+  await chooseFrame('Originale (scansione)');
+  await openDeckSettings();
+  const firstEditFrame = deckSettings().getByLabel('Stile per le carte originali modificate');
+  await deckSettings().getByText('Opzioni avanzate', { exact: true }).click();
   assert.equal(await firstEditFrame.getAttribute('data-value'), 'full-art');
   await choose(firstEditFrame, 'extended-art');
-  await choose(frameElement, 'rules');
+  await deckSettings().getByRole('button', { name: 'Fatto', exact: true }).click();
+  await deckSettings().waitFor({ state: 'hidden' });
+  await pressElement('Testo');
   await inspector.getByText('Se cambi l’allineamento del testo, l’editor applica il template Illustrazione estesa.').waitFor();
-  await choose(cardAlignment, 'right');
-  assert.equal(await template.getAttribute('data-value'), 'extended-art');
-  await choose(cardAlignment, '');
-  await choose(template, 'printing');
+  await chooseAlign('Destra');
+  assert.equal(await frameIs('Illustrazione estesa'), true);
+  await chooseAlign('Come nella cornice');
+  await chooseFrame('Originale (scansione)');
   await cardTab.click();
-  await inspector.getByText('Quando modifichi i dati della stampa originale, l’editor applica il template Illustrazione estesa.').waitFor();
+  await inspector.getByText('Se modifichi un campo, la carta passa allo stile Illustrazione estesa, così il testo si può riscrivere. Puoi annullare.').waitFor();
   await cardText.fill('Pesca una carta.');
   await frameTab.click();
-  assert.equal(await template.getAttribute('data-value'), 'extended-art');
+  assert.equal(await frameIs('Illustrazione estesa'), true);
   await page.waitForFunction(async () => {
     const [project] = await window.proxy.projects();
     const saved = await window.proxy.open(project.id);
@@ -240,10 +286,10 @@ try {
     const red = y => context.getImageData(0, y, 1, 1).data[0];
     return red(0) < red(100) && red(100) < red(300);
   });
-  await page.getByRole('button', { name: 'Carta', exact: true }).click();
+  await cardTab.click();
   assert.equal(await cardText.inputValue(), 'Pesca una carta.');
   await page.locator('.source').getByText('Magic 2011').waitFor();
-  await page.getByRole('button', { name: 'Cornice', exact: true }).click();
+  await frameTab.click();
   await electron.evaluate(() => globalThis.setSmokeFiles('frame'));
   const stageGuides = page.locator('.stage').getByRole('button', { name: 'Griglia dei terzi e guide di centratura' });
   const stageGrid = page.locator('.stage .thirds-grid');
@@ -252,68 +298,180 @@ try {
   await stageGuides.press('Space');
   await stageGrid.waitFor({ state: 'detached' });
   assert.equal(await stageGuides.getAttribute('aria-pressed'), 'false');
-  await page.getByRole('button', { name: 'Set di cornici', exact: true }).click();
-  const frameEditor = page.getByRole('dialog', { name: 'Editor cornici del progetto' });
-  const frameGuides = frameEditor.getByRole('button', { name: 'Griglia dei terzi e guide di centratura' });
+  await page.getByRole('button', { name: 'Personalizza cornice', exact: true }).click();
+  // Focus mode: the frame editor replaces the deck and the inspector while it is open.
+  const frameEditor = page.locator('.columns.is-frame-focus');
+  // Undo and redo with the focus outside inputs (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z).
+  await editorSection('Sfumature').click();
+  const topStrength = frameEditor.getByRole('radiogroup', { name: 'Intensità', exact: true }).first();
+  const shownStrength = async () => (await topStrength.getByRole('radio', { checked: true }).innerText()).trim();
+  const strengthBefore = await shownStrength();
+  const strengthNext = strengthBefore === 'Nessuna' ? 'Forte' : 'Nessuna';
+  await topStrength.getByRole('radio', { name: strengthNext, exact: true }).click();
+  await topStrength.getByRole('radio', { name: strengthNext, exact: true, checked: true }).waitFor();
+  await page.keyboard.press(`${undoKey}+z`);
+  await topStrength.getByRole('radio', { name: strengthBefore, exact: true, checked: true }).waitFor();
+  await page.keyboard.press(`${undoKey}+Shift+z`);
+  await topStrength.getByRole('radio', { name: strengthNext, exact: true, checked: true }).waitFor();
+  // Shading reach "Libera" exposes an exact height that the handle grip on the card changes, by keyboard or by dragging.
+  const reach = frameEditor.getByRole('radiogroup', { name: 'Arriva fino a', exact: true }).first();
+  await pickTile(reach, 'Libera');
+  const topHeight = frameEditor.getByRole('spinbutton', { name: /Altezza esatta/ }).first();
+  const topGrip = frameEditor.getByRole('slider', { name: 'Fine della sfumatura superiore', exact: true });
+  await topGrip.waitFor();
+  const heightBefore = Number(await topHeight.inputValue());
+  await topGrip.focus();
+  await topGrip.press('Shift+ArrowDown');
+  await until(() => topHeight.inputValue(), value => Number(value) > heightBefore);
+  const heightBeforeDrag = Number(await topHeight.inputValue());
+  const grip = await topGrip.boundingBox();
+  const gripX = grip.x + grip.width / 2;
+  const gripY = grip.y + grip.height / 2;
+  await page.mouse.move(gripX, gripY);
+  await page.mouse.down();
+  await page.mouse.move(gripX, gripY - 30, { steps: 6 });
+  await page.mouse.up();
+  await until(() => topHeight.inputValue(), value => Number(value) !== heightBeforeDrag);
+  // "Ripristina tutto" asks first: cancelling keeps the changes, confirming restores the template.
+  const resetAll = frameEditor.getByRole('button', { name: 'Ripristina tutto', exact: true });
+  const resetAllDialog = page.getByRole('alertdialog', { name: 'Ripristinare tutta la cornice?', exact: true });
+  await resetAll.click();
+  await resetAllDialog.waitFor();
+  await resetAllDialog.getByRole('button', { name: 'Annulla', exact: true }).click();
+  await resetAllDialog.waitFor({ state: 'hidden' });
+  await frameEditor.getByText('1 modifica rispetto all’originale', { exact: true }).waitFor();
+  await resetAll.click();
+  await resetAllDialog.getByRole('button', { name: 'Ripristina tutto', exact: true }).click();
+  await resetAllDialog.waitFor({ state: 'hidden' });
+  await frameEditor.getByText('Nessuna modifica rispetto all’originale', { exact: true }).waitFor();
+  await frameEditor.getByRole('tab', { name: 'Cornici custom', exact: true }).click();
+  const frameGuides = page.locator('.stage').getByRole('button', { name: 'Griglia dei terzi e guide di centratura' });
   assert.equal(await frameGuides.getAttribute('aria-pressed'), 'false');
   await frameGuides.click();
-  await frameEditor.locator('.thirds-grid').waitFor({ state: 'visible' });
+  await page.locator('.stage .thirds-grid').waitFor({ state: 'visible' });
   await stageGrid.waitFor({ state: 'visible' });
-  assert.equal(await frameEditor.getByRole('button', { name: 'Cornici custom', exact: true }).getAttribute('aria-pressed'), 'true');
+  assert.equal(await frameEditor.getByRole('tab', { name: 'Cornici custom', exact: true }).getAttribute('aria-selected'), 'true');
+  await editorSection('Immagini della cornice').click();
   await page.getByLabel('Nome del set').fill('Cornici prova');
   for (const color of ['Bianco', 'Blu', 'Nero', 'Rosso', 'Verde', 'Incolore']) {
     await page.getByRole('button', { name: 'Carica ' + color, exact: true }).click();
     await page.getByRole('button', { name: 'Sostituisci ' + color, exact: true }).waitFor();
   }
   await frameEditor.getByRole('button', { name: 'Salva set', exact: true }).click();
-  const fontSize = frameEditor.getByRole('slider', { name: 'Dimensione massima del font' });
-  await frameEditor.getByRole('button', { name: 'Testo ed effetti', exact: true }).click();
-  assert.equal(await frameEditor.getByLabel('Testo da formattare').count(), 0);
-  assert.equal(await fontSize.count(), 0);
-  await frameEditor.getByRole('button', { name: 'Zone', exact: true }).click();
-  const editableZone = frameEditor.getByLabel('Zona da modificare');
-  await choose(editableZone, 'art');
-  assert.equal(await fontSize.count(), 0);
-  await choose(editableZone, 'title');
-  await choose(frameEditor.getByLabel('Allineamento orizzontale'), 'right');
-  await fontSize.press('Home');
-  assert.equal(await fontSize.inputValue(), '8');
-  await choose(editableZone, 'artist');
-  assert.equal(await fontSize.inputValue(), '20');
-  await choose(editableZone, 'stats');
-  await choose(frameEditor.locator('.template-preview-options').getByLabel('Anteprima'), '');
-  const statsBox = frameEditor.getByLabel('Stile del riquadro');
-  const statsDivider = frameEditor.getByLabel('Separatore forza/costituzione');
-  const previewCanvas = frameEditor.locator('canvas');
-  await previewCanvas.waitFor();
-  await statsBox.click();
-  assert.equal(await frameEditor.getByRole('option').count(), 11);
-  await frameEditor.getByRole('option', { name: 'Capsula' }).click();
-  await page.waitForFunction(() => document.querySelector('.template-preview-card canvas').getContext('2d')
+  // Layout: zone chips pick the element; the text size and the alignment are tiles, exact values under "Personalizzato".
+  await editorSection('Posizioni').click();
+  const editableZone = frameEditor.getByRole('group', { name: 'Elemento da modificare', exact: true });
+  const zoneChip = name => editableZone.getByRole('button', { name, exact: true });
+  const sizeGroup = frameEditor.getByRole('radiogroup', { name: 'Dimensione massima del testo', exact: true });
+  const exactSize = frameEditor.getByRole('spinbutton', { name: 'Valore esatto' });
+  await zoneChip('Illustrazione').click();
+  assert.equal(await sizeGroup.count(), 0);
+  await zoneChip('Nome').click();
+  await pickTile(frameEditor.getByRole('radiogroup', { name: 'Allineamento orizzontale', exact: true }), 'Destra');
+  if (!await exactSize.isVisible()) await frameEditor.getByRole('button', { name: 'Personalizzato', exact: true }).click();
+  await exactSize.fill('8');
+  await exactSize.press('Enter');
+  await until(() => exactSize.inputValue(), value => value === '8');
+  await zoneChip('Firma').click();
+  await sizeGroup.getByRole('radio', { name: 'Normale', exact: true, checked: true }).waitFor();
+  await zoneChip('Statistiche').click();
+  await choose(page.getByLabel('Carta in anteprima'), '');
+  await editorSection('Statistiche').click();
+  const statsBox = frameEditor.getByRole('radiogroup', { name: 'Stile del riquadro', exact: true });
+  const statsDivider = frameEditor.getByRole('radiogroup', { name: 'Separatore forza/costituzione', exact: true });
+  const statsTab = name => frameEditor.locator('.stats-navigation').getByRole('tab', { name, exact: true });
+  const stagePreview = page.locator('.stage .card-preview canvas');
+  await stagePreview.waitFor();
+  const previewPixel = () => document.querySelector('.stage .card-preview canvas').getContext('2d')
+    .getImageData(595, 950, 1, 1).data.slice(0, 3).join(',');
+  const basePixel = await page.evaluate(previewPixel);
+  await frameEditor.getByLabel('Carica immagine del riquadro', { exact: true }).setInputFiles({
+    name: 'stats.svg', mimeType: 'image/svg+xml',
+    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 12"><rect width="40" height="12" fill="white"/></svg>')
+  });
+  await page.waitForFunction(() => document.querySelector('.stage .card-preview canvas').getContext('2d')
+    .getImageData(595, 950, 1, 1).data.slice(0, 3).join(',') === '255,255,255');
+  await frameEditor.getByRole('checkbox', { name: 'Rendi trasparente un colore dell’immagine', exact: true }).check();
+  await page.waitForFunction(base => document.querySelector('.stage .card-preview canvas').getContext('2d')
+    .getImageData(595, 950, 1, 1).data.slice(0, 3).join(',') === base, basePixel);
+  await frameEditor.getByRole('button', { name: 'Ripristina «Tutti i valori»', exact: true }).click();
+  assert.equal(await statsBox.getByRole('radio').count(), 11);
+  await pickTile(statsBox, 'Capsula');
+  await page.waitForFunction(() => document.querySelector('.stage .card-preview canvas').getContext('2d')
     .getImageData(595, 950, 1, 1).data.slice(0, 3).join(',') === '250,246,237');
   const statsPixels = () => {
-    const context = document.querySelector('.template-preview-card canvas').getContext('2d');
+    const context = document.querySelector('.stage .card-preview canvas').getContext('2d');
     return { above: context.getImageData(558, 930, 135, 9).data.join(','),
       separator: context.getImageData(617, 950, 15, 32).data.join(',') };
   };
   const originalStats = await page.evaluate(statsPixels);
-  await choose(statsDivider, 'capsule');
-  await page.waitForFunction(separator => document.querySelector('.template-preview-card canvas').getContext('2d')
+  await statsTab('Divisore').click();
+  await pickTile(statsDivider, 'Filetto verticale');
+  await page.waitForFunction(separator => document.querySelector('.stage .card-preview canvas').getContext('2d')
     .getImageData(617, 950, 15, 32).data.join(',') !== separator, originalStats.separator);
   assert.equal((await page.evaluate(statsPixels)).above, originalStats.above);
+  const unpadded = (await page.evaluate(statsPixels)).separator;
+  await statsTab('Spaziatura').click();
+  await frameEditor.getByRole('checkbox', { name: 'Stessa spaziatura su tutti i lati', exact: true }).uncheck();
+  const leftPadding = frameEditor.getByRole('spinbutton', { name: 'Sinistra' });
+  await leftPadding.fill('64');
+  await leftPadding.press('Enter');
+  await page.waitForFunction(before => document.querySelector('.stage .card-preview canvas').getContext('2d')
+    .getImageData(617, 950, 15, 32).data.join(',') !== before, unpadded);
+  await leftPadding.fill('0');
+  await leftPadding.press('Enter');
+  await page.waitForFunction(before => document.querySelector('.stage .card-preview canvas').getContext('2d')
+    .getImageData(617, 950, 15, 32).data.join(',') === before, unpadded);
   await page.waitForFunction(async () => {
     const [project] = await window.proxy.projects();
     const saved = await window.proxy.open(project.id);
     const stats = saved.frameSets.find(set => set.name === 'Cornici prova')?.appearance?.statsAppearance;
     return stats?.box === 'capsule' && stats.divider === 'capsule';
   });
-  await frameEditor.getByRole('button', { name: 'Colori', exact: true }).click();
-  assert.equal(await frameEditor.locator('.template-controls-body:visible').evaluate(node => node.scrollWidth <= node.clientWidth), true);
+  // "Si applica a" chooses the value level the stats style applies to (Tutti i valori, Solo forza/costituzione, ...).
+  const styleScope = frameEditor.getByLabel('Si applica a', { exact: true });
+  const previewValues = frameEditor.getByLabel('Valori di prova in anteprima');
+  const readStats = () => document.querySelector('.stage .card-preview canvas').getContext('2d')
+    .getImageData(550, 935, 150, 55).data.join(',');
+  const sampleBefore = await page.evaluate(readStats);
+  await choose(previewValues, '1+*/1+*');
+  await page.waitForFunction(before => document.querySelector('.stage .card-preview canvas').getContext('2d')
+    .getImageData(550, 935, 150, 55).data.join(',') !== before, sampleBefore);
+  await choose(styleScope, 'loyalty');
+  assert.equal(await previewValues.getAttribute('data-value'), 'loyalty');
+  await statsTab('Riquadro').click();
+  await pickTile(statsBox, 'Losanga');
+  await choose(styleScope, 'defense');
+  await pickTile(statsBox, 'Doppio filetto');
+  await choose(styleScope, 'pair');
+  await statsTab('Divisore').click();
+  const beforeGap = await page.evaluate(readStats);
+  const gapGroup = frameEditor.getByRole('radiogroup', { name: 'Spazio ai lati del separatore', exact: true });
+  const exactGap = frameEditor.getByRole('spinbutton', { name: 'Valore esatto' });
+  if (!await exactGap.isVisible()) await frameEditor.getByRole('button', { name: 'Personalizzato', exact: true }).click();
+  await exactGap.fill('32');
+  await exactGap.press('Enter');
+  await until(() => exactGap.inputValue(), value => value === '32');
+  await gapGroup.waitFor();
+  await page.waitForFunction(before => document.querySelector('.stage .card-preview canvas').getContext('2d')
+    .getImageData(550, 935, 150, 55).data.join(',') !== before, beforeGap);
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    const saved = await window.proxy.open(project.id);
+    const stats = saved.frameSets.find(set => set.name === 'Cornici prova')?.appearance?.statsAppearance;
+    return stats?.byKind?.pair?.dividerGap === 32 && stats.byKind.loyalty?.box === 'diamond'
+      && stats.byKind.defense?.box === 'double' && stats.box === 'capsule';
+  });
+  await choose(styleScope, 'base');
+  assert.equal(await previewValues.getAttribute('data-value'), 'card');
+  await editorSection('Colori delle carte').click();
+  assert.equal(await page.locator('.editor-focus-controls').evaluate(node => node.scrollWidth <= node.clientWidth), true);
   await frameEditor.screenshot({ path: join(paths, 'custom-frames.png') });
-  await page.getByLabel('Applica a 1 carta').check();
-  await page.getByRole('button', { name: 'Salva e applica' }).click();
+  await editorSection('Immagini della cornice').click();
+  await page.getByLabel(/^Applica alla carta/).check();
+  await frameEditor.getByRole('button', { name: 'Salva e applica', exact: true }).click();
   await page.getByText('Set salvato e applicato').waitFor();
-  await page.getByText('Cornice applicata · Rosso').waitFor();
+  await page.getByRole('button', { name: 'Torna al mazzo', exact: true }).click();
   await page.waitForFunction(async () => {
     const [project] = await window.proxy.projects();
     const saved = await window.proxy.open(project.id);
@@ -322,34 +480,50 @@ try {
       && frame.set.appearance.textStyles.title.size === 8 && frame.set.appearance.statsAppearance?.box === 'capsule';
   });
   await frameTab.click();
-  await choose(frameElement, 'stats');
-  const cardStatsBox = inspector.getByLabel('Stile del riquadro');
-  const cardStatsDivider = inspector.getByLabel('Separatore forza/costituzione');
-  assert.equal(await cardStatsBox.getAttribute('data-value'), '');
-  await choose(cardStatsBox, 'banner');
-  await choose(cardStatsDivider, 'original');
+  await page.getByText('Cornice applicata · Rosso').waitFor();
+  await pressElement('Statistiche');
+  const cardStatsBox = inspector.getByRole('radiogroup', { name: 'Stile del riquadro', exact: true });
+  const cardStatsDivider = inspector.getByRole('radiogroup', { name: 'Separatore forza/costituzione', exact: true });
+  const cardStatsLevel = inspector.getByLabel('Si applica a', { exact: true });
+  const statsTabOf = name => inspector.locator('.stats-navigation').getByRole('tab', { name, exact: true });
+  assert.ok(await cardStatsBox.getByRole('radio', { name: 'Come nella cornice', exact: true }).isChecked());
+  await pickTile(cardStatsBox, 'Stendardo');
+  await statsTabOf('Divisore').click();
+  await pickTile(cardStatsDivider, 'Standard');
   await page.waitForFunction(async () => {
     const [project] = await window.proxy.projects();
     const saved = await window.proxy.open(project.id);
-    const { statsOverrides } = saved.cards[0];
-    return statsOverrides?.box === 'banner' && statsOverrides.divider === 'original';
+    const { fields, statsOverrides } = saved.cards[0];
+    return fields.power === '' && fields.toughness === '' && statsOverrides?.box === 'banner' && statsOverrides.divider === 'original';
   });
-  await choose(cardStatsBox, '');
-  await choose(cardStatsDivider, '');
-  await choose(frameElement, 'art');
+  await statsTabOf('Riquadro').click();
+  await pickTile(cardStatsBox, 'Come nella cornice');
+  await statsTabOf('Divisore').click();
+  await pickTile(cardStatsDivider, 'Come nella cornice');
+  // Regression: the level choice must stick after switching the stats tabs.
+  await choose(cardStatsLevel, 'pair');
+  await statsTabOf('Spaziatura').click();
+  await statsTabOf('Riquadro').click();
+  assert.equal(await cardStatsLevel.getAttribute('data-value'), 'pair');
+  await choose(cardStatsLevel, 'base');
+  // The artwork area is edited from the Illustrazione tab, not from the element toggles.
+  await inspector.getByRole('tab', { name: 'Illustrazione', exact: true }).click();
+  await inspector.getByRole('button', { name: 'Mostra e modifica area dell’illustrazione', exact: true }).click();
   await zoneX.waitFor();
-  assert.equal(await cardAlignment.count(), 0);
-  await choose(frameElement, 'artist');
-  await cardAlignment.waitFor();
+  assert.equal(await alignGroup().count(), 0);
+  await frameTab.click();
+  await pressElement('Firma');
+  await alignGroup().waitFor();
   assert.equal(await zoneX.count(), 0);
   assert.equal(await page.locator('.stage .zone-guide').count(), 0);
-  await choose(frameElement, 'rules');
+  await pressElement('Testo');
+  await openExactValues();
   await zoneX.waitFor();
   await page.locator('.stage .zone-guide').waitFor();
-  assert.equal(await cardAlignment.getAttribute('data-value'), '');
-  await choose(cardAlignment, 'center');
-  await choose(frameElement, 'title');
-  await choose(cardAlignment, 'left');
+  assert.ok(await alignIs('Come nella cornice'));
+  await chooseAlign('Centro');
+  await pressElement('Nome');
+  await chooseAlign('Sinistra');
   await page.waitForFunction(async () => {
     const [project] = await window.proxy.projects();
     const saved = await window.proxy.open(project.id);
@@ -357,18 +531,20 @@ try {
     return card.textAlignOverrides?.rules === 'center' && card.textAlignOverrides.title === 'left'
       && card.frame.set.appearance.textStyles.title.align === 'right';
   });
-  await choose(cardAlignment, '');
-  await choose(frameElement, 'rules');
-  assert.equal(await cardAlignment.getAttribute('data-value'), 'center');
-  await choose(cardAlignment, '');
-  await inspector.getByRole('button', { name: 'Cornice', exact: true }).click();
-  const projectFrame = page.locator('.deck').getByLabel('Cornice del progetto');
-  await choose(projectFrame, 'import');
-  await page.waitForFunction(() => document.querySelector('.deck-controls .select-trigger')?.dataset.value === 'custom');
-  await page.getByText('Questa carta usa la cornice del progetto.', { exact: false }).waitFor();
-  await choose(projectFrame, '');
+  await chooseAlign('Come nella cornice');
+  await pressElement('Testo');
+  assert.ok(await alignIs('Centro'));
+  await chooseAlign('Come nella cornice');
+  await frameTab.click();
+  await openDeckSettings();
+  await deckSettings().getByRole('button', { name: 'Carica una cornice PNG…', exact: true }).click();
+  await deckStyle().getByRole('radio', { name: 'Cornice PNG', exact: true, checked: true }).waitFor();
+  await deckSettings().getByRole('button', { name: 'Fatto', exact: true }).click();
+  await deckSettings().waitFor({ state: 'hidden' });
+  assert.ok(await inspector.getByRole('radio', { name: 'Usa lo stile del mazzo', exact: true }).isChecked());
+  await chooseDeckStyle('Ogni carta il suo stile');
   await page.getByText('Cornice applicata · Rosso').waitFor();
-  await choose(projectFrame, 'full-art');
+  await chooseDeckStyle('Full art');
   await page.getByRole('button', { name: 'Importa lista', exact: true }).click();
   await page.getByLabel('Lista delle carte').fill('99 Sole // Luna\n1 Non esiste');
   await page.getByRole('button', { name: 'Importa carte' }).click();
@@ -377,22 +553,23 @@ try {
   await page.getByRole('button', { name: 'Chiudi', exact: true }).click();
   const deck = page.locator('.deck-list');
   const bolt = deck.getByRole('button', { name: /Lightning Bolt/ });
-  const copyFrame = page.getByRole('button', { name: 'Copia cornice', exact: true });
-  const pasteFrame = page.getByRole('button', { name: 'Incolla cornice', exact: true });
-  const pasteSettings = page.getByRole('button', { name: 'Incolla impostazioni cornice', exact: true });
+  const copyFrame = page.getByRole('button', { name: 'Copia stile', exact: true });
+  const pasteFrame = page.getByRole('button', { name: 'Incolla stile', exact: true });
+  const pasteSettings = page.getByRole('button', { name: 'Incolla ritocchi', exact: true });
   const typeVisible = page.getByRole('checkbox', { name: 'Tipo', exact: true });
   await bolt.click();
   await frameTab.click();
   assert.ok(await pasteSettings.isDisabled());
-  await choose(projectFrame, '');
-  await choose(frameElement, 'title');
+  await chooseDeckStyle('Ogni carta il suo stile');
+  await pressElement('Nome');
+  await openExactValues();
   await zoneX.fill('10');
   await typeVisible.uncheck();
   await copyFrame.click();
   await page.getByText('Cornice copiata', { exact: true }).waitFor();
   await typeVisible.check();
-  await page.getByRole('button', { name: 'Ripristina posizione della cornice' }).click();
-  await choose(projectFrame, 'full-art');
+  await page.getByRole('button', { name: 'Ripristina posizione', exact: true }).click();
+  await chooseDeckStyle('Full art');
   await deck.getByRole('button', { name: /Sole/ }).click();
   const backSide = page.getByRole('button', { name: 'Retro', exact: true });
   await backSide.click();
@@ -400,7 +577,8 @@ try {
   await pasteSettings.click();
   await page.getByText('Impostazioni della cornice incollate', { exact: true }).waitFor();
   assert.equal(await typeVisible.isChecked(), false);
-  await choose(frameElement, 'title');
+  await pressElement('Nome');
+  await openExactValues();
   assert.equal(await zoneX.inputValue(), '10');
   await page.waitForFunction(async () => {
     const [project] = await window.proxy.projects();
@@ -410,7 +588,7 @@ try {
       && side?.frame.kind === 'printing' && side.hiddenZones?.includes('type') && side.zoneOverrides?.title?.x === 10;
   });
   await undoChange.click();
-  await choose(projectFrame, '');
+  await chooseDeckStyle('Ogni carta il suo stile');
   await backSide.click();
   await frameTab.click();
   assert.ok(await copyFrame.isDisabled());
@@ -431,6 +609,19 @@ try {
     const [project] = await window.proxy.projects();
     return !(await window.proxy.open(project.id)).cards[1].backSide;
   });
+  // Redo brings the undone paste back, and undo removes it again.
+  await page.getByRole('button', { name: 'Ripeti la modifica annullata', exact: true }).click();
+  await page.getByText('Modifica ripetuta', { exact: true }).waitFor();
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    const [, child] = (await window.proxy.open(project.id)).cards;
+    return child.backSide?.frame.kind === 'color-set' && child.backSide.fields.name === 'Luna';
+  });
+  await undoChange.click();
+  await page.waitForFunction(async () => {
+    const [project] = await window.proxy.projects();
+    return !(await window.proxy.open(project.id)).cards[1].backSide;
+  });
   await electron.evaluate(() => globalThis.setSmokeFiles('art'));
   assert.equal(await cardText.inputValue(), 'Testo di Sole.');
   await page.locator('.image-dropzone').click();
@@ -447,7 +638,7 @@ try {
     const [red, green, blue] = canvas.getContext('2d').getImageData(12, 12, 1, 1).data;
     return red > 170 && green < 60 && blue > 120;
   });
-  await inspector.getByRole('button', { name: 'Illustrazione', exact: true }).click();
+  await inspector.getByRole('tab', { name: 'Illustrazione', exact: true }).click();
   assert.equal(await inspector.getByRole('button', { name: 'Torna all’illustrazione di catalogo' }).count(), 0);
   await page.locator('.image-dropzone').click();
   await page.waitForFunction(async () => {
@@ -469,25 +660,27 @@ try {
     const [card] = (await window.proxy.open(project.id)).cards;
     return { id: card.id, setId: card.frame.set.id };
   });
-  const mirrorSelect = inspector.getByLabel('Segui cornice di');
+  const mirrorSelect = inspector.locator('xpath=.//label[contains(., "Carta da copiare")]//button[contains(@class, "select-trigger")]');
+  const copyStyle = inspector.getByRole('radio', { name: 'Copia lo stile di un’altra carta', exact: true });
   const moon = deck.getByRole('button', { name: /Sole/ });
   const mirrorSource = `${source.id}/front`;
-  const frameLock = inspector.getByText('Per modificare questa cornice, scegli Nessuna sorgente.');
-  const mirrorWarning = inspector.getByRole('status').filter({ hasText: 'Mirroring sospeso' });
+  const frameLock = inspector.getByText('Per modificare questa cornice, scegli «Stile proprio».');
+  const mirrorWarning = inspector.getByText('La carta copiata usa la scansione originale');
   const resetCard = inspector.getByRole('button', { name: 'Ripristina carta originale' });
   await backSide.click();
   await frameTab.click();
+  await copyStyle.check();
   await choose(mirrorSelect, mirrorSource);
   await frameLock.waitFor();
   assert.ok(await pasteFrame.isDisabled());
   assert.ok(await resetCard.isEnabled());
-  assert.equal(await frameElement.count(), 0);
-  await inspector.getByRole('button', { name: 'Carta', exact: true }).click();
+  assert.equal(await inspector.locator('.element-toggles').count(), 0);
+  await cardTab.click();
   await cardText.fill('Testo indipendente');
   await electron.evaluate(() => globalThis.setSmokeFiles('art'));
   await page.locator('.image-dropzone').click();
-  await inspector.getByRole('button', { name: 'Illustrazione', exact: true }).click();
-  assert.ok(await inspector.getByRole('slider').first().isEnabled());
+  await inspector.getByRole('tab', { name: 'Illustrazione', exact: true }).click();
+  assert.ok(await inspector.locator('.visual-choice').first().getByRole('radio').first().isEnabled());
   await page.waitForFunction(async ({ id }) => {
     const [project] = await window.proxy.projects();
     const [, child] = (await window.proxy.open(project.id)).cards;
@@ -502,7 +695,7 @@ try {
   assert.equal(await mirrorSelect.getAttribute('data-value'), mirrorSource);
   await bolt.click();
   await frameTab.click();
-  await choose(template, 'printing');
+  await chooseFrame('Originale (scansione)');
   await moon.click();
   await backSide.click();
   await mirrorWarning.waitFor();
@@ -510,7 +703,7 @@ try {
   assert.equal(await mirrorSelect.getAttribute('data-value'), mirrorSource);
   await bolt.click();
   await frameTab.click();
-  await choose(template, source.setId);
+  await chooseFrame('Cornici prova');
   await moon.click();
   await backSide.click();
   await frameTab.click();
@@ -520,25 +713,38 @@ try {
   await page.getByRole('button', { name: 'Rimuovi 1 carta selezionata' }).click();
   await backSide.click();
   await frameTab.click();
-  assert.equal(await mirrorSelect.getAttribute('data-value'), '');
-  assert.equal(await template.getAttribute('data-value'), 'printing');
+  // With no source left, the copy choice and its card select are no longer offered.
+  assert.equal(await mirrorSelect.count(), 0);
+  assert.equal(await frameIs('Originale (scansione)'), true);
   await undoChange.click();
   await backSide.click();
   await frameTab.click();
   await frameLock.waitFor();
   await choose(mirrorSelect, '');
-  assert.equal(await template.getAttribute('data-value'), 'printing');
-  await choose(mirrorSelect, mirrorSource);
-  await resetCard.click();
+  // Choosing "Scegli una carta…" unlinks but keeps the source select open, so another card can be picked directly.
   assert.equal(await mirrorSelect.getAttribute('data-value'), '');
-  assert.equal(await template.getAttribute('data-value'), 'printing');
+  assert.equal(await copyStyle.isChecked(), true);
+  await choose(mirrorSelect, mirrorSource);
+  // Reset asks first: cancelling keeps the card modified, confirming restores it.
+  const resetDialog = page.getByRole('alertdialog');
+  await resetCard.click();
+  await resetDialog.getByRole('button', { name: 'Annulla', exact: true }).click();
+  await resetDialog.waitFor({ state: 'hidden' });
+  assert.equal(await mirrorSelect.getAttribute('data-value'), mirrorSource);
+  await resetCard.click();
+  await resetDialog.getByRole('button', { name: 'Ripristina', exact: true }).click();
+  await resetDialog.waitFor({ state: 'hidden' });
+  // After the reset the card is back to its own style: the copy select closes and the frame tiles show.
+  assert.equal(await mirrorSelect.count(), 0);
+  assert.equal(await inspector.getByRole('radio', { name: 'Stile proprio', exact: true }).isChecked(), true);
+  assert.equal(await frameIs('Originale (scansione)'), true);
   await page.waitForFunction(async ({ id, setId }) => {
     const [project] = await window.proxy.projects();
     const [parent, child] = (await window.proxy.open(project.id)).cards;
     return parent.id === id && parent.frame.kind === 'color-set'
       && parent.frame.set.id === setId && !child.backSide;
   }, source);
-  await choose(projectFrame, 'full-art');
+  await chooseDeckStyle('Full art');
   await bolt.click();
   await electron.evaluate(() => globalThis.setSmokeFiles('art'));
   await page.getByRole('button', { name: 'Modifica in blocco' }).click();
@@ -547,17 +753,14 @@ try {
   await page.getByText('Modificata 1 carta').waitFor();
   await page.getByRole('button', { name: 'Annulla ultima modifica' }).click();
   await page.getByText('Modifica annullata').waitFor();
-  assert.equal(await projectFrame.getAttribute('data-value'), 'full-art');
+  assert.match(await page.locator('.deck-style-summary').innerText(), /Full art/);
   await cardText.fill('Pesca una carta. {R}');
-  await page.getByRole('button', { name: 'Editor cornici', exact: true }).click();
-  await page.getByRole('button', { name: 'Simboli', exact: true }).click();
-  const symbolSelect = page.getByRole('combobox', { name: 'Simbolo', exact: true });
-  await symbolSelect.click();
-  const redSymbol = page.locator('.select-menu [role=option][data-value="R"]');
-  await redSymbol.locator('img').scrollIntoViewIfNeeded();
-  await page.waitForFunction(() => document.querySelector('.select-menu [data-value="R"] img')?.naturalWidth > 0);
-  await redSymbol.click();
-  const symbolFile = page.getByLabel('File del simbolo');
+  await page.getByRole('button', { name: 'Personalizza cornice', exact: true }).click();
+  await editorSection('Simboli di mana').click();
+  // Mana symbols are grid tiles named "Simbolo {X}"; the image is replaced from the dropzone.
+  const symbolTile = token => frameEditor.getByRole('button', { name: `Simbolo {${token}}`, exact: true });
+  await symbolTile('R').click();
+  const symbolFile = frameEditor.getByLabel('Sostituisci immagine del simbolo', { exact: true });
   const symbolPng = await page.evaluate(() => {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 16;
@@ -567,11 +770,10 @@ try {
     return canvas.toDataURL().split(',')[1];
   });
   await symbolFile.setInputFiles({ name: 'mana.png', mimeType: 'image/png', buffer: Buffer.from(symbolPng, 'base64') });
-  await page.getByRole('button', { name: 'Ripristina immagine' }).waitFor();
-  assert.match(await symbolSelect.locator('img').getAttribute('src'), /^proxy-asset:\/\/images\//);
-  await symbolSelect.click();
-  assert.equal(await redSymbol.locator('img').getAttribute('src'), await symbolSelect.locator('img').getAttribute('src'));
-  await symbolSelect.press('Escape');
+  await frameEditor.getByRole('button', { name: 'Ripristina immagine', exact: true }).waitFor();
+  const symbolSource = await symbolTile('R').locator('img').getAttribute('src');
+  assert.match(symbolSource, /^proxy-asset:\/\/images\//);
+  assert.equal(await frameEditor.locator('.symbol-editor-preview img').getAttribute('src'), symbolSource);
   const verifySymbolPixels = (selector, icon, coloredAreas) => page.waitForFunction(({ selector, icon, coloredAreas }) => {
     const canvas = document.querySelector(selector);
     if (canvas?.width !== 744) return false;
@@ -589,24 +791,31 @@ try {
     const areas = { title: [35, 30, 500, 70], rules: [35, 775, 350, 55], type: [35, 700, 350, 42] };
     return Object.entries(areas).every(([area, box]) => contains(color, ...box) === coloredAreas.includes(area));
   }, { selector, icon, coloredAreas });
-  await verifySymbolPixels('.template-preview canvas', [0, 255, 0]);
+  await verifySymbolPixels('.stage .card-preview canvas', [0, 255, 0]);
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="#ff00ff" d="M0 0H16V16H0Z"/></svg>';
   await symbolFile.setInputFiles({ name: 'mana.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(svg) });
-  await page.getByLabel('Colore del testo · {R}', { exact: true }).fill('#00ffff');
-  const textColorChecks = [
-    ['title', 'Colore del titolo dalla carta'], ['rules', 'Colore del corpo dalla carta'], ['type', 'Colore del tipo dalla carta']
-  ];
+  // Card colors: the red identity sets the color the text takes when it is colored by the card.
+  await editorSection('Colori delle carte').click();
+  await frameEditor.getByLabel('Rosso', { exact: true }).fill('#00ffff');
+  await editorSection('Colori degli elementi').click();
+  const textColors = frameEditor.getByRole('group', { name: 'Testi', exact: true });
+  const colorSource = label => textColors.getByRole('combobox', { name: label, exact: true });
+  const textColorChecks = [['title', 'Titolo'], ['rules', 'Corpo del testo'], ['type', 'Tipo']];
   for (const [area, label] of textColorChecks) {
-    const checkbox = page.getByRole('checkbox', { name: label, exact: true });
-    await checkbox.check();
-    await verifySymbolPixels('.template-preview canvas', [255, 0, 255], [area]);
-    await checkbox.uncheck();
+    await choose(colorSource(label), 'card');
+    await verifySymbolPixels('.stage .card-preview canvas', [255, 0, 255], [area]);
+    await choose(colorSource(label), 'text');
   }
-  await page.getByRole('button', { name: 'Testo ed effetti' }).click();
-  for (const [, label] of textColorChecks) await page.getByRole('checkbox', { name: label, exact: true }).check();
-  await verifySymbolPixels('.template-preview canvas', [255, 0, 255], ['title', 'rules', 'type']);
+  for (const [, label] of textColorChecks) await choose(colorSource(label), 'card');
+  // A custom divider color shows its swatch; the stats border default then follows it.
+  await choose(colorSource('Divisori'), 'custom');
+  await textColors.getByLabel('Colore personalizzato: Divisori', { exact: true }).waitFor();
+  const statsColors = frameEditor.getByRole('group', { name: 'Statistiche', exact: true });
+  assert.equal(await statsColors.getByRole('combobox', { name: 'Bordo', exact: true }).locator('span').first().textContent(), 'Come i divisori');
+  await choose(colorSource('Divisori'), 'card');
+  await verifySymbolPixels('.stage .card-preview canvas', [255, 0, 255], ['title', 'rules', 'type']);
   await page.screenshot({ path: join(paths, 'frame-symbols.png') });
-  await page.getByRole('button', { name: 'Chiudi', exact: true }).click();
+  await page.getByRole('button', { name: 'Torna al mazzo', exact: true }).click();
   await page.getByRole('button', { name: 'Esporta', exact: true }).click();
   await page.screenshot({ path: join(paths, 'print-choices.png') });
   await page.getByRole('button', { name: 'Immagini delle carte (ZIP)' }).click();
@@ -677,7 +886,7 @@ try {
   electron = await launch();
   page = await electron.firstWindow();
   await page.getByRole('heading', { name: 'Lightning Bolt', exact: true }).waitFor();
-  assert.equal(await page.locator('.deck').getByLabel('Cornice del progetto').getAttribute('data-value'), 'full-art');
+  assert.match(await page.locator('.deck-style-summary').innerText(), /Full art/);
   await verifySymbolPixels('.card-preview canvas', [255, 0, 255], ['title', 'rules', 'type']);
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
   await page.getByRole('button', { name: 'PDF per la stampa' }).click();
@@ -725,17 +934,23 @@ try {
   });
   const projectSelect = page.getByRole('combobox', { name: 'Apri progetto' });
   const originalProjectId = await projectSelect.getAttribute('data-value');
-  const projectTitle = page.getByRole('textbox', { name: 'Nome del progetto' });
+  // The project name lives in the deck settings dialog.
+  const projectTitle = () => deckSettings().getByRole('textbox', { name: 'Nome del progetto', exact: true });
   const changedTitle = 'Verifica recupero salvataggio';
-  await projectTitle.fill(changedTitle);
-  await projectTitle.press('Enter');
+  await openDeckSettings();
+  await projectTitle().fill(changedTitle);
+  await projectTitle().press('Enter');
+  await deckSettings().getByRole('button', { name: 'Fatto', exact: true }).click();
+  await deckSettings().waitFor({ state: 'hidden' });
   await page.locator('.save-status').getByRole('button', { name: 'Riprova a salvare' }).waitFor();
   await choose(projectSelect, 'new');
   const unsavedDialog = page.getByRole('dialog', { name: 'Modifiche non salvate' });
   await unsavedDialog.getByText(`Impossibile salvare le modifiche a «${changedTitle}».`).waitFor();
   assert.equal(await projectSelect.getAttribute('data-value'), originalProjectId);
   await unsavedDialog.getByRole('button', { name: 'Continua a modificare' }).click();
-  assert.equal(await projectTitle.inputValue(), changedTitle);
+  await openDeckSettings();
+  assert.equal(await projectTitle().inputValue(), changedTitle);
+  await deckSettings().getByRole('button', { name: 'Fatto', exact: true }).click();
   await choose(projectSelect, 'new');
   await electron.evaluate(() => { globalThis.smokeSaveFailure = false; });
   await unsavedDialog.getByRole('button', { name: 'Riprova a salvare' }).click();

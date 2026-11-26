@@ -69,7 +69,7 @@ const templateEffectSchema = z.object({
 export type TemplateEffect = z.infer<typeof templateEffectSchema>;
 export const frameTextAreas = ['title', 'type', 'rules', 'stats', 'artist'] as const;
 export type FrameTextArea = typeof frameTextAreas[number];
-export const cardColorTextAreas = ['title', 'rules', 'type'] as const;
+export const cardColorTextAreas = ['title', 'rules', 'type', 'stats', 'statsDivider', 'statsBox', 'artist'] as const;
 const frameTextAlignSchema = z.enum(['left', 'center', 'right']);
 export type FrameTextAlign = z.infer<typeof frameTextAlignSchema>;
 const frameTextStyleSchema = z.object({
@@ -84,7 +84,25 @@ export type SymbolOverrides = z.infer<typeof symbolOverridesSchema>;
 export const statsStyles = ['square', 'rounded', 'capsule', 'chamfered', 'double', 'dashed', 'dotted', 'diamond', 'fade', 'banner'] as const;
 const statsStyleSchema = z.enum(['original', ...statsStyles]);
 export type StatsStyle = z.infer<typeof statsStyleSchema>;
-const statsAppearanceSchema = z.object({ divider: statsStyleSchema.optional(), box: statsStyleSchema.optional() });
+export const statsKinds = ['pair', 'loyalty', 'defense'] as const;
+export type StatsKind = typeof statsKinds[number];
+const statsBaseAppearanceSchema = z.object({
+  divider: statsStyleSchema.optional(), box: statsStyleSchema.optional(),
+  boxAsset: assetId.nullable().optional(), dividerAsset: assetId.nullable().optional(),
+  ink: hexColor.optional(), ruleColor: hexColor.optional(), borderColor: hexColor.optional(), fill: hexColor.optional(),
+  transparentColor: hexColor.nullable().optional(), outline: hexColor.nullable().optional(),
+  size: z.number().int().min(8).max(100).optional(),
+  paddingTop: z.number().int().min(0).max(64).optional(),
+  paddingRight: z.number().int().min(0).max(64).optional(),
+  paddingBottom: z.number().int().min(0).max(64).optional(),
+  paddingLeft: z.number().int().min(0).max(64).optional(),
+  dividerGap: z.number().int().min(0).max(32).optional(),
+  borderWidth: z.number().min(0).max(8).optional(), opacity: z.number().min(0).max(100).optional()
+});
+export type StatsBaseAppearance = z.infer<typeof statsBaseAppearanceSchema>;
+const statsAppearanceSchema = statsBaseAppearanceSchema.extend({
+  byKind: z.partialRecord(z.enum(statsKinds), statsBaseAppearanceSchema.strict()).optional()
+});
 export type StatsAppearance = z.infer<typeof statsAppearanceSchema>;
 export const templateAppearanceSchema = z.object({
   zones: zonesSchema, overlay: assetId.optional(), symbolOverrides: symbolOverridesSchema.optional(),
@@ -109,7 +127,10 @@ export type TemplateAppearance = z.infer<typeof templateAppearanceSchema>;
 
 export const frameColors = ['W', 'U', 'B', 'R', 'G', 'C'] as const;
 export const frameColorNames = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless' } as const;
-export const frameSetAssetsSchema = z.object({ W: assetId, U: assetId, B: assetId, R: assetId, G: assetId, C: assetId });
+/** Every color slot is optional; a set needs at least one image. Missing colors fall back to the colorless image, then to any image. */
+export const frameSetAssetsSchema = z.object({
+  W: assetId.optional(), U: assetId.optional(), B: assetId.optional(), R: assetId.optional(), G: assetId.optional(), C: assetId.optional()
+}).refine(assets => Object.values(assets).some(Boolean), { message: 'A frame set needs at least one image' });
 export const frameSetSchema = z.object({
   id: uuid, name: z.string().trim().min(1).max(100), assets: frameSetAssetsSchema, mix: z.boolean(), zones: zonesSchema,
   textColor: hexColor.optional(), fontFamily: fontFamilySchema.optional(), appearance: templateAppearanceSchema.optional()
@@ -124,14 +145,20 @@ const customFrameSchema = z.object({ kind: z.literal('custom'), asset: assetId, 
 const projectFrameSchema = z.discriminatedUnion('kind', [
   builtInFrameSchema, templateFrameSchema, customFrameSchema,
   z.object({ kind: z.literal('color-set'), id: uuid }),
-  z.object({ kind: z.literal('preset'), id: uuid })
+  z.object({ kind: z.literal('preset'), id: uuid }),
+  /** Every catalog card keeps its original scan; custom cards keep their own frame. */
+  z.object({ kind: z.literal('printing') })
 ]);
 
 const cardSideSchema = z.object({
   fields: cardDataSchema.pick({ name: true, mana: true, type: true, rules: true, artist: true, power: true, toughness: true, loyalty: true, defense: true }),
   art: assetId.optional(),
   zoneOverrides: zonesSchema.partial().optional(),
-  hiddenZones: z.array(z.enum(['art', 'title', 'type', 'rules', 'stats'])).optional(),
+  hiddenZones: z.array(z.enum(['art', 'title', 'type', 'rules', 'stats', 'artist'])).optional(),
+  /** When true the side keeps its own frame even if the project defines a shared frame. */
+  frameOverride: z.boolean().optional(),
+  /** Per-card maximum text size, layered over the frame's text styles. */
+  textStyleOverrides: z.partialRecord(z.enum(frameTextAreas), z.object({ size: z.number().int().min(8).max(96).optional() })).optional(),
   dividerOverrides: z.object({ titleDivider: z.boolean().optional(), divider: z.boolean().optional() }).optional(),
   statsOverrides: statsAppearanceSchema.optional(),
   textAlignOverrides: z.partialRecord(z.enum(frameTextAreas), frameTextAlignSchema).optional(),
@@ -159,6 +186,12 @@ export const assetSchema = z.object({ id: assetId, name: z.string(), width: z.nu
 
 export type CardData = z.infer<typeof cardDataSchema>;
 export type Card = z.infer<typeof cardSchema>;
+export function resolveStatsAppearance(frame?: StatsAppearance, card?: StatsAppearance, kind?: StatsKind): StatsBaseAppearance {
+  const { byKind: frameByKind, ...frameBase } = frame ?? {};
+  const { byKind: cardByKind, ...cardBase } = card ?? {};
+  return { ...frameBase, ...(kind ? frameByKind?.[kind] : undefined),
+    ...cardBase, ...(kind ? cardByKind?.[kind] : undefined) };
+}
 export type FrameMirror = NonNullable<Card['frameMirror']>;
 export type Preset = z.infer<typeof presetSchema>;
 export type Project = z.infer<typeof projectSchema>;
@@ -249,8 +282,8 @@ export function sideState(card: Card): NonNullable<Card['backSide']> {
 }
 
 export function sideFrameSettings(card: Card) {
-  const { frame, zoneOverrides, hiddenZones, dividerOverrides, statsOverrides, textAlignOverrides } = card;
-  return { frame, zoneOverrides, hiddenZones, dividerOverrides, statsOverrides, textAlignOverrides };
+  const { frame, zoneOverrides, hiddenZones, dividerOverrides, statsOverrides, textAlignOverrides, textStyleOverrides, frameOverride } = card;
+  return { frame, zoneOverrides, hiddenZones, dividerOverrides, statsOverrides, textAlignOverrides, textStyleOverrides, frameOverride };
 }
 
 export function rebaseBackSide(card: Card, source: CardData): Card['backSide'] {
@@ -276,6 +309,8 @@ export function isCardModified(card: Card): boolean {
     || (card.hiddenZones?.length ?? 0) > 0
     || Object.values(card.zoneOverrides ?? {}).some(value => value !== undefined)
     || Object.values(card.textAlignOverrides ?? {}).some(value => value !== undefined)
+    || Object.values(card.textStyleOverrides ?? {}).some(value => value?.size !== undefined)
+    || card.frameOverride
     || Object.values(card.statsOverrides ?? {}).some(value => value !== undefined)
     || Object.values(card.dividerOverrides ?? {}).some(value => value !== undefined)) return true;
 

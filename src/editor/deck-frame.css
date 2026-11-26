@@ -1,0 +1,4 @@
+/* Deck panel frame style: the unified picker plus a secondary PNG upload button. */
+.deck-frame { display: grid; gap: 8px; min-width: 0; }
+.deck-frame-import { justify-self: start; }
+.batch-frame-note { margin: 0; }

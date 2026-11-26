@@ -1,0 +1,15 @@
+/* Frame set editor: multi-file import, slot states and readiness notes. */
+.frame-set-form .image-drop { margin: 0; }
+.frame-set-note, .frame-set-reason { margin: 0; }
+
+.frame-set-grid > .frame-set-slot {
+  display: flex; align-items: center; gap: 6px; min-width: 0; padding: 4px;
+  border: 1px solid var(--rule); border-radius: 6px;
+}
+.frame-set-grid > .frame-set-slot > img { flex: none; }
+.frame-set-slot-body { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.frame-set-grid .frame-set-remove { min-height: 0; padding: 4px 8px; display: block; text-align: center; font-size: 0.85em; }
+.frame-set-fallback { overflow-wrap: anywhere; }
+
+.frame-set-actions { align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
+.frame-set-actions .frame-set-reason { margin-right: auto; }

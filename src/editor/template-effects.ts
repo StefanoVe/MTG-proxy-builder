@@ -11,6 +11,17 @@ export function templateBox(zone: Rect, w = width, h = height): Rect {
 
 export const templateEffectHeights = { topEffect: 15, bottomEffect: 48 };
 type Effect = keyof typeof templateEffectHeights;
+
+/** How far (in % of the card height) a shading reaches from its edge, honouring zone anchors. */
+export function effectExtent(appearance: TemplateAppearance, effect: Effect): number {
+  const settings = appearance[effect];
+  if (settings && settings.anchor !== 'manual') {
+    const zone = appearance.zones[settings.anchor];
+    const boundary = zone.y + zone.h / 2 < 50 ? zone.y + zone.h : zone.y;
+    return effect === 'topEffect' ? boundary : 100 - boundary;
+  }
+  return settings?.height ?? templateEffectHeights[effect];
+}
 const blurSteps = 6;
 
 function wash(ctx: CanvasRenderingContext2D, appearance: TemplateAppearance,
@@ -20,13 +31,7 @@ function wash(ctx: CanvasRenderingContext2D, appearance: TemplateAppearance,
   const top = effect === 'topEffect';
   const edge = top ? 0 : 100;
   const settings = appearance[effect];
-  let extent = settings?.height ?? templateEffectHeights[effect];
-  if (settings && settings.anchor !== 'manual') {
-    const zone = appearance.zones[settings.anchor];
-    const boundary = zone.y + zone.h / 2 < 50 ? zone.y + zone.h : zone.y;
-    extent = top ? boundary - edge : edge - boundary;
-  }
-  extent = Math.min(100, extent);
+  const extent = Math.min(100, effectExtent(appearance, effect));
   if (extent <= 0) return false;
   const tinted = (opacity: number) => color + Math.round(opacity * strength * 255).toString(16).padStart(2, '0');
   // Let the transition continue beyond the selected boundary, clipped by the card.

@@ -1,0 +1,20 @@
+/* Unified frame picker: radio tiles with live thumbnails. */
+.frame-picker { display: grid; gap: 8px; min-width: 0; }
+.frame-picker-label { font-weight: 600; }
+.frame-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.frame-tile {
+  display: grid; justify-items: center; align-content: start; gap: 4px; min-height: 0; padding: 6px;
+  border: 1px solid var(--rule); background: var(--worktop); color: var(--ink); text-align: center;
+}
+.frame-tile[aria-checked=true] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: #ffffff10; }
+.frame-tile-thumb { display: grid; place-items: center; width: 100%; aspect-ratio: 63 / 88; background: #222; border-radius: 4px; overflow: hidden; }
+.frame-tile-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.frame-tile-placeholder { color: var(--muted); font-size: 22px; font-weight: 700; }
+.frame-tile-name { font-size: 12px; line-height: 1.2; overflow-wrap: anywhere; }
+.frame-tile-detail { font-size: 11px; color: var(--muted); line-height: 1.2; }
+.frame-tone { display: grid; gap: 4px; }
+
+.frame-picker.is-compact .frame-tiles { grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 6px; }
+.frame-picker.is-compact .frame-tile { padding: 4px; gap: 3px; }
+.frame-picker.is-compact .frame-tile-name { font-size: 11px; }
+.frame-picker.is-compact .frame-tile-placeholder { font-size: 16px; }

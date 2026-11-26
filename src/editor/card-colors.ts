@@ -6,6 +6,7 @@ const cardColors: Record<Exclude<Tone, 'auto'>, [string, string]> = {
   red: ['#a4513a', '#f6e2ce'], green: ['#476649', '#e0ebd2'], multi: ['#9c783f', '#f3e7be'],
   artifact: ['#69767c', '#e1e9e6'], land: ['#79614e', '#efe5d0']
 };
+const cardIdentitySymbols = ['W', 'U', 'B', 'R', 'G', 'C'];
 const colorNames = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' } as const;
 export type CardPaint = string | readonly string[];
 
@@ -54,7 +55,8 @@ export function resolveCardColors(card: Card, overrides?: SymbolOverrides) {
   const keys = cardPaletteKeys(card, tokens);
   const land = /\b(land|terra)\b/i.test(card.fields.type);
   const fallback = cardColors[land ? 'land' : 'artifact'];
-  const standalone = keys.length <= 1 ? tokens.find(token => manaComponents(token).length === 1 &&
+  // Only a color identity (W, U, B, R, G) or colorless C may define the card color; numeric and generic symbols never do.
+  const standalone = keys.length <= 1 ? tokens.find(token => cardIdentitySymbols.includes(token) &&
     manaColorKeys([token]).join('') === (keys[0] ?? '') && overrides?.[token]?.textColor) : undefined;
   const standaloneColor = standalone ? overrides?.[standalone]?.textColor : undefined;
   const cardColor = keys.length
