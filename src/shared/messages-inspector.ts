@@ -14,7 +14,6 @@ export const inspectorMessages = {
   // Scope of the card frame
   styleScope: ["Stile", "Style"],
   scopeDeck: ["Usa lo stile del mazzo", "Use the deck style"],
-  scopeDeckChange: ["Cambia lo stile del mazzo", "Change the deck style"],
   scopeOwn: ["Stile proprio", "Own style"],
   scopeCopy: ["Copia lo stile di un’altra carta", "Copy the style of another card"],
   customizeFrame: ["Personalizza questa cornice", "Customize this frame"],

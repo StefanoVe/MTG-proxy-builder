@@ -226,6 +226,7 @@ try {
   const inspector = page.locator('#workspace-properties');
   const frameTab = inspector.getByRole('tab', { name: 'Cornice', exact: true });
   const cardTab = inspector.getByRole('tab', { name: 'Carta', exact: true });
+  const artTab = inspector.getByRole('tab', { name: 'Illustrazione', exact: true });
   const elementToggle = name => inspector.locator('.element-toggles').getByRole('button', { name, exact: true });
   // Element toggles select one element; clicking the pressed one would clear it, so only click when needed.
   const pressElement = async name => {
@@ -289,6 +290,24 @@ try {
   await cardTab.click();
   assert.equal(await cardText.inputValue(), 'Pesca una carta.');
   await page.locator('.source').getByText('Magic 2011').waitFor();
+  const stageCard = page.locator('.stage .card-preview');
+  const titlePosition = await stageCard.evaluate(node => ({ x: node.clientWidth / 2, y: node.clientHeight * 0.075 }));
+  const zoneHover = stageCard.locator('.zone-hover');
+  const zoneGuide = stageCard.locator('.zone-guide');
+  await stageCard.click({ position: titlePosition });
+  assert.equal(await cardTab.getAttribute('aria-selected'), 'true');
+  assert.equal(await zoneHover.count(), 0);
+  await frameTab.click();
+  await stageCard.hover({ position: titlePosition });
+  await zoneHover.waitFor();
+  await stageCard.click({ position: titlePosition });
+  await zoneGuide.waitFor();
+  assert.equal(await elementToggle('Nome').getAttribute('aria-pressed'), 'true');
+  await frameTab.press('ArrowLeft');
+  await stageCard.click({ position: titlePosition });
+  assert.equal(await artTab.getAttribute('aria-selected'), 'true');
+  assert.equal(await zoneHover.count(), 0);
+  assert.equal(await zoneGuide.count(), 0);
   await frameTab.click();
   await electron.evaluate(() => globalThis.setSmokeFiles('frame'));
   const stageGuides = page.locator('.stage').getByRole('button', { name: 'Griglia dei terzi e guide di centratura' });
@@ -507,7 +526,7 @@ try {
   assert.equal(await cardStatsLevel.getAttribute('data-value'), 'pair');
   await choose(cardStatsLevel, 'base');
   // The artwork area is edited from the Illustrazione tab, not from the element toggles.
-  await inspector.getByRole('tab', { name: 'Illustrazione', exact: true }).click();
+  await artTab.click();
   await inspector.getByRole('button', { name: 'Mostra e modifica area dell’illustrazione', exact: true }).click();
   await zoneX.waitFor();
   assert.equal(await alignGroup().count(), 0);
@@ -542,6 +561,7 @@ try {
   await deckSettings().getByRole('button', { name: 'Fatto', exact: true }).click();
   await deckSettings().waitFor({ state: 'hidden' });
   assert.ok(await inspector.getByRole('radio', { name: 'Usa lo stile del mazzo', exact: true }).isChecked());
+  assert.equal(await inspector.getByRole('button', { name: 'Cambia lo stile del mazzo', exact: true }).count(), 0);
   await chooseDeckStyle('Ogni carta il suo stile');
   await page.getByText('Cornice applicata · Rosso').waitFor();
   await chooseDeckStyle('Full art');

@@ -16,7 +16,7 @@ import { FrameSets } from './FrameSets.js';
 import { FrameGallery } from './FrameGallery.js';
 import { Batch } from './Batch.js';
 import { Inspector } from './Inspector.js';
-import type { FrameElement } from './Inspector.js';
+import type { FrameElement, InspectorTab } from './Inspector.js';
 import { Preview, PreviewGuidesButton } from './Preview.js';
 import { PrintPanel } from './PrintPanel.js';
 import type { PrintDraft } from './PrintPanel.js';
@@ -132,6 +132,7 @@ export function App() {
   const [active, setActive] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [zone, setZone] = useState<FrameElement>();
+  const [inspector, setInspector] = useState<{ key: string; tab: InspectorTab }>({ key: '', tab: 'card' });
   const [back, setBack] = useState(false);
   const [compare, setCompare] = useState(false);
   const [showPreviewGuides, setShowPreviewGuides] = useState(true);
@@ -155,7 +156,6 @@ export function App() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<{ key: MessageKey; count?: number; template?: string; undo?: boolean }>();
   const [confirmResetCard, setConfirmResetCard] = useState(false);
-  const [focusElement, setFocusElement] = useState<{ zone: FrameElement; nonce: number }>();
   const [busy, setBusy] = useState(false);
   const [draggingImage, setDraggingImage] = useState(false);
   const [query, setQuery] = useState('');
@@ -227,6 +227,13 @@ export function App() {
   const editorCompareCard = editorStageCard && editorDefaultAppearance && { ...editorStageCard, frame: editorFrameFor(editorDefaultAppearance) };
   const editorGuide = editorPreview.guide;
   const focusMode = editorOpen && !!editedAppearance;
+  const inspectorKey = !focusMode && card ? `${card.id}/${back}` : '';
+  if (inspector.key !== inspectorKey) {
+    setInspector({ key: inspectorKey, tab: 'card' });
+    setZone(undefined);
+  }
+  const frameTabActive = inspector.tab === 'frame';
+  const previewZone = !mirror && zone !== 'artist' && (frameTabActive || (inspector.tab === 'art' && zone === 'art')) ? zone : undefined;
   const shadingHandles = editorGuide?.kind === 'shading' && editedAppearance ? [
     { id: 'topEffect', y: effectExtent(editedAppearance, 'topEffect'), label: t('shadingHandleTop') },
     { id: 'bottomEffect', y: 100 - effectExtent(editedAppearance, 'bottomEffect'), label: t('shadingHandleBottom') }
@@ -799,17 +806,12 @@ export function App() {
 
   function selectStageElement(element: FrameElement) {
     setZone(element);
-    setFocusElement(previous => ({ zone: element, nonce: (previous?.nonce ?? 0) + 1 }));
+    if (element === 'art') setInspector({ key: inspectorKey, tab: 'art' });
   }
 
   function openDeckSettings() {
     setError('');
     setPanel('deck-settings');
-  }
-
-  function focusDeckStyle() {
-    openDeckSettings();
-    requestAnimationFrame(() => document.querySelector<HTMLElement>('.deck-settings .frame-tile[aria-checked="true"]')?.focus());
   }
 
   function resetActiveCard() {
@@ -1087,8 +1089,8 @@ export function App() {
             ) : selectedRendered && !usesArt(selectedRendered) && !selectedRendered.source.images.front ? <div className="missing-printing">
               <p role="status">{loadingImage ? t('loadingScan') : card.source.images.error ?? t('scanUnavailable')}</p>
               {!loadingImage && <button onClick={() => void loadPrintingImages(selectedRendered)}>{t('retryLoading')}</button>}
-            </div> : <Preview card={selectedRendered!} showThirds={showPreviewGuides} zone={mirror || zone === 'artist' ? undefined : zone} onZone={mirror ? undefined : changeZone}
-              onSelectElement={mirror || !selectedCard?.source.editable ? undefined : selectStageElement} selectedElement={zone}
+            </div> : <Preview card={selectedRendered!} showThirds={showPreviewGuides} zone={previewZone} onZone={previewZone ? changeZone : undefined}
+              onSelectElement={frameTabActive && !mirror && selectedCard?.source.editable ? selectStageElement : undefined} selectedElement={previewZone}
               hideArtworkWarning={missingArtwork}
               onCrop={selectedCard?.source.editable && (selectedRendered?.frame.kind !== 'printing' || !!selectedCard.art) ? crop => updateSide(card.id, { crop }, true) : undefined} />}
             </div>
@@ -1122,9 +1124,10 @@ export function App() {
           <div className="deck-add empty-deck-add">{deckAddActions}</div>
         </div>}
       </main>
-      {focusMode ? null : card && selectedCard && selectedRendered ? <Inspector key={`${card.id}/${back}`} project={project} projectFrame={sharedFrame}
-        focusElement={focusElement} chooseEditionFrame={card.source.printingId ? () => choosePrinting('frames') : undefined}
-        focusDeckStyle={focusDeckStyle} card={selectedCard} renderedCard={selectedRendered} back={back} sharedFrame={usesSharedFrame} presets={project.presets} frameSets={project.frameSets ?? []}
+      {focusMode ? null : card && selectedCard && selectedRendered ? <Inspector key={inspectorKey} project={project} projectFrame={sharedFrame}
+        tab={inspector.tab} onTabChange={tab => setInspector({ key: inspectorKey, tab })}
+        chooseEditionFrame={card.source.printingId ? () => choosePrinting('frames') : undefined}
+        card={selectedCard} renderedCard={selectedRendered} back={back} sharedFrame={usesSharedFrame} presets={project.presets} frameSets={project.frameSets ?? []}
         editCustomFrame={manageFrameSets}
         mirror={card.source.editable ? {
           value: mirror ? mirrorValue(mirror.cardId, mirror.back) : '',

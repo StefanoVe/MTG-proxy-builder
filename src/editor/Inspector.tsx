@@ -33,7 +33,7 @@ const elementLabels: Record<FrameTextArea, MessageKey> = {
 const rarityNames: Partial<Record<string, MessageKey>> = { common: 'common', uncommon: 'uncommon', rare: 'rare', mythic: 'mythic', special: 'special', bonus: 'bonus' };
 const manaTokens = ['W', 'U', 'B', 'R', 'G', 'C', 'X'] as const;
 const tabItems = ['card', 'art', 'frame'] as const;
-type InspectorTab = typeof tabItems[number];
+export type InspectorTab = typeof tabItems[number];
 type StatsValueKind = 'pair' | 'loyalty' | 'defense';
 type ZoneKey = keyof Rect;
 const oppositeZoneKey = { x: 'w', y: 'h', w: 'x', h: 'y' } as const;
@@ -182,9 +182,8 @@ export type InspectorProps = {
   choosePrinting: () => void;
   zone: FrameElement | undefined;
   selectZone: (zone: FrameElement | undefined) => void;
-  /** A new nonce opens the frame tab (or the artwork tab for the art area) on this element. */
-  focusElement?: { zone: FrameElement; nonce: number };
-  focusDeckStyle?: () => void;
+  tab: InspectorTab;
+  onTabChange: (tab: InspectorTab) => void;
   chooseEditionFrame?: () => void;
   savePreset: (name: string) => void;
   frameSets: FrameSet[];
@@ -196,11 +195,10 @@ export type InspectorProps = {
   printingEditFrame: TemplateFrame;
 };
 
-export function Inspector({ card, renderedCard, sharedFrame, projectFrame, project, update, resetCard, choosePrinting, zone, selectZone, focusElement,
-  focusDeckStyle, chooseEditionFrame, savePreset, editCustomFrame, copyFrame, pasteFrame, mirror, printingEditFrame }: InspectorProps) {
+export function Inspector({ card, renderedCard, sharedFrame, projectFrame, project, update, resetCard, choosePrinting, zone, selectZone, tab, onTabChange,
+  chooseEditionFrame, savePreset, editCustomFrame, copyFrame, pasteFrame, mirror, printingEditFrame }: InspectorProps) {
   const { t } = useI18n();
   const baseId = useId();
-  const [tab, setTab] = useState<InspectorTab>('card');
   const [presetName, setPresetName] = useState('');
   const [copying, setCopying] = useState(false);
   // "Copy from another card" stays open while the user is choosing a source; any other way the link
@@ -213,12 +211,6 @@ export function Inspector({ card, renderedCard, sharedFrame, projectFrame, proje
   }, [linked]);
   const [tweaksOpen, setTweaksOpen] = useState(true);
   const tabButtons = useRef<Partial<Record<InspectorTab, HTMLButtonElement | null>>>({});
-  const seenFocus = useRef(focusElement?.nonce);
-  useEffect(() => {
-    if (!focusElement || focusElement.nonce === seenFocus.current) return;
-    seenFocus.current = focusElement.nonce;
-    setTab(focusElement.zone === 'art' ? 'art' : 'frame');
-  }, [focusElement]);
 
   const pasteLabel = t(sharedFrame ? 'pasteFrameSettings' : 'pasteFrame');
   const custom = card.frame.kind === 'custom' ? card.frame : undefined;
@@ -310,7 +302,7 @@ export function Inspector({ card, renderedCard, sharedFrame, projectFrame, proje
   }
 
   function selectTab(item: InspectorTab) {
-    setTab(item);
+    onTabChange(item);
     if (item !== 'frame' || (original && zone === 'art')) selectZone(undefined);
   }
   function onTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
@@ -451,10 +443,7 @@ export function Inspector({ card, renderedCard, sharedFrame, projectFrame, proje
       {tab === 'frame' && <>
         {(projectFrame || (mirror && (mirror.options.length > 0 || !!mirror.value))) && <fieldset className="scope-choice">
           <legend>{t('styleScope')}</legend>
-          {projectFrame && <>
-            <label className="check"><input type="radio" name={`${baseId}-scope`} checked={deckChecked} onChange={followDeck} />{t('scopeDeck')}</label>
-            {focusDeckStyle && <button type="button" className="scope-link" onClick={focusDeckStyle}>{t('scopeDeckChange')}</button>}
-          </>}
+          {projectFrame && <label className="check"><input type="radio" name={`${baseId}-scope`} checked={deckChecked} onChange={followDeck} />{t('scopeDeck')}</label>}
           <label className="check"><input type="radio" name={`${baseId}-scope`} checked={ownChecked} onChange={ownStyle} />{t('scopeOwn')}</label>
           {mirror && (mirror.options.length > 0 || !!mirror.value) && <label className="check">
             <input type="radio" name={`${baseId}-scope`} checked={copyChecked} onChange={() => setCopying(true)} />{t('scopeCopy')}
