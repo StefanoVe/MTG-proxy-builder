@@ -1,0 +1,4 @@
+Source: https://github.com/drona23/claude-token-efficient
+Commit: 0d30a6db75af983b8ababf585f28faefdfc87895
+License: MIT (see LICENSE)
+Benchmark data and .claude/settings.json not copied.
