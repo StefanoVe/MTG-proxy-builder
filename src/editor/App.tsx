@@ -794,14 +794,6 @@ export function App() {
   const mirrorLabelCounts = new Map<string, number>();
   for (const { label } of mirrorLabels) mirrorLabelCounts.set(label, (mirrorLabelCounts.get(label) ?? 0) + 1);
   const fullArtBase = project.templateAppearances?.['full-art'] ? undefined : project.fullArtBase;
-  const deckFrame = project.frame;
-  const deckStyleName = !deckFrame ? t('framePerCardStyle')
-    : deckFrame.kind === 'printing' ? t('frameOriginalScan')
-    : deckFrame.kind === 'modern' ? t('normalFrame') : deckFrame.kind === 'classic' ? t('classicFrame')
-    : deckFrame.kind === 'template' ? t(templateNames[deckFrame.template])
-    : deckFrame.kind === 'color-set' ? project.frameSets?.find(set => set.id === deckFrame.id)?.name ?? t('frameKindColorSet')
-    : deckFrame.kind === 'preset' ? project.presets.find(preset => preset.id === deckFrame.id)?.name ?? t('frameKindSavedPng')
-    : t('frameKindPng');
   const printingEditFrame = newTemplate(project.printingEditTemplate ?? 'full-art', fullArtBase);
 
   function selectStageElement(element: FrameElement) {
@@ -965,11 +957,6 @@ export function App() {
           <button className="icon-button" aria-label={t(deckCollapsed ? 'expandDeck' : 'collapseDeck')} title={t(deckCollapsed ? 'expandDeck' : 'collapseDeck')} aria-expanded={!deckCollapsed} aria-controls="deck-content" onClick={() => setDeckCollapsed(value => !value)}><Icon name={deckCollapsed ? 'expand' : 'collapse'} /></button>
         </div>
         <div id="deck-content" className="deck-controls" hidden={deckCollapsed}>
-          <button type="button" className="deck-style-summary" onClick={openDeckSettings} disabled={busy}>
-            <Icon name="frames" size={16} />
-            <span><small>{t('deckStyleSummary')}</small><strong>{deckStyleName}</strong></span>
-            <Icon name="settings" size={16} />
-          </button>
           <div className="deck-add">{deckAddActions}</div>
         </div>
         {card && !deckCollapsed && <div className="deck-catalog-search">{catalogSearch}</div>}

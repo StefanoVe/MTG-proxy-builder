@@ -18,7 +18,6 @@ export const appMessages = {
   editorPreviewNext: ["Carta successiva", "Next card"],
   editorCompareDefault: ["Tieni premuto per vedere l’originale", "Hold to see the original"],
   deckSettings: ["Impostazioni del mazzo", "Deck settings"],
-  deckStyleSummary: ["Stile delle carte", "Card style"],
   deckSettingsDone: ["Fatto", "Done"],
   backToDeck: ["Torna al mazzo", "Back to the deck"],
 } as const;

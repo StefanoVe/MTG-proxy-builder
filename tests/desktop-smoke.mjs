@@ -31,11 +31,14 @@ try {
     if (!await deckSettings().isVisible()) await page.getByRole('button', { name: 'Impostazioni del mazzo', exact: true }).click();
   };
   const deckStyle = () => deckSettings().getByRole('radiogroup', { name: 'Stile delle carte', exact: true });
+  const closeDeckSettings = async () => {
+    await deckSettings().getByRole('button', { name: 'Fatto', exact: true }).click();
+    await deckSettings().waitFor({ state: 'hidden' });
+  };
   const chooseDeckStyle = async name => {
     await openDeckSettings();
     await deckStyle().getByRole('radio', { name, exact: true }).click();
-    await deckSettings().getByRole('button', { name: 'Fatto', exact: true }).click();
-    await deckSettings().waitFor({ state: 'hidden' });
+    await closeDeckSettings();
   };
   // Frame tiles (role=radio) of the inspector frame tab.
   const frameStyle = () => page.locator('#workspace-properties').getByRole('radiogroup', { name: 'Cornice', exact: true });
@@ -773,7 +776,10 @@ try {
   await page.getByText('Modificata 1 carta').waitFor();
   await page.getByRole('button', { name: 'Annulla ultima modifica' }).click();
   await page.getByText('Modifica annullata').waitFor();
-  assert.match(await page.locator('.deck-style-summary').innerText(), /Full art/);
+  assert.equal(await page.locator('#workspace-deck').getByRole('button', { name: /^Stile delle carte/ }).count(), 0);
+  await openDeckSettings();
+  assert.ok(await deckStyle().getByRole('radio', { name: 'Full art', exact: true }).isChecked());
+  await closeDeckSettings();
   await cardText.fill('Pesca una carta. {R}');
   await page.getByRole('button', { name: 'Personalizza cornice', exact: true }).click();
   await editorSection('Simboli di mana').click();
@@ -906,7 +912,9 @@ try {
   electron = await launch();
   page = await electron.firstWindow();
   await page.getByRole('heading', { name: 'Lightning Bolt', exact: true }).waitFor();
-  assert.match(await page.locator('.deck-style-summary').innerText(), /Full art/);
+  await openDeckSettings();
+  assert.ok(await deckStyle().getByRole('radio', { name: 'Full art', exact: true }).isChecked());
+  await closeDeckSettings();
   await verifySymbolPixels('.card-preview canvas', [255, 0, 255], ['title', 'rules', 'type']);
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
   await page.getByRole('button', { name: 'PDF per la stampa' }).click();

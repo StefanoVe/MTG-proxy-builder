@@ -705,14 +705,6 @@ button, input:not([type="range"], [type="checkbox"]), select, textarea { border-
 .deck-advanced[open] > summary { margin-bottom: 8px; }
 .deck-advanced > label + .muted { margin-top: 6px; font-size: 13px; }
 
-/* Deck panel: one summary row opens the deck settings modal. */
-.deck-style-summary {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px;
-  width: 100%; min-height: 48px; padding: 8px 12px; text-align: left;
-}
-.deck-style-summary > span { display: grid; min-width: 0; }
-.deck-style-summary small { color: var(--muted); font-size: 12px; }
-.deck-style-summary strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .deck-settings { display: grid; gap: 16px; }
 .deck-settings .frame-picker.is-compact .frame-tiles { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
 
