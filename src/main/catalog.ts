@@ -80,12 +80,20 @@ function printing(card: ScryCard): Printing {
     thumbnail: thumbnail?.startsWith('https://cards.scryfall.io/') ? thumbnail : undefined };
 }
 
+async function paperPrinting(card: ScryCard) {
+  if (!card.digital) return card;
+  if (!card.oracle_id) return undefined;
+  const query = new URLSearchParams({ q: `oracleid:${card.oracle_id} game:paper`, include_extras: 'true' });
+  const result = await request('/cards/search?' + query);
+  return result ? cardList.parse(result).data.find(candidate => !candidate.digital) : undefined;
+}
+
 export async function search(name: string) {
   const exact = await request('/cards/named?exact=' + encodeURIComponent(name));
   let exactPrinting: Printing | undefined;
   if (exact) {
-    const card = scryCard.parse(exact);
-    if (!card.digital) {
+    const card = await paperPrinting(scryCard.parse(exact));
+    if (card) {
       rememberCard(card);
       exactPrinting = printing(card);
     }
@@ -119,15 +127,20 @@ export async function resolveDeck(entries: DeckEntry[]) {
   const found = new Map<string, ScryCard>();
   for (let index = 0; index < unique.length; index += 75) {
     const chunk = unique.slice(index, index + 75);
+    const namesRequested = new Set(chunk.filter(entry => !entry.set).map(key));
     const response = cardList.parse(await request('/cards/collection', {
       identifiers: chunk.map(entry => entry.set ? { set: entry.set, collector_number: entry.number } : { name: entry.name })
     }));
     for (const card of response.data) {
-      if (card.digital) continue;
-      rememberCard(card);
-      found.set(`${card.set}/${card.collector_number}`, card);
-      for (const name of [card.name, card.printed_name, ...card.card_faces?.flatMap(face => [face.name, face.printed_name]) ?? []]) {
-        if (name && !found.has(normalizeName(name))) found.set(normalizeName(name), card);
+      const names = [card.name, card.printed_name, ...card.card_faces?.flatMap(face => [face.name, face.printed_name]) ?? []]
+        .filter((name): name is string => !!name).map(normalizeName);
+      if (card.digital && !names.some(name => namesRequested.has(name))) continue;
+      const paper = await paperPrinting(card);
+      if (!paper) continue;
+      rememberCard(paper);
+      if (!card.digital) found.set(`${card.set}/${card.collector_number}`, paper);
+      for (const name of names) {
+        if (!found.has(name)) found.set(name, paper);
       }
     }
   }

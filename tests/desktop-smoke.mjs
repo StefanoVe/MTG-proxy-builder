@@ -169,6 +169,10 @@ try {
       image_uris: { art: 'https://cards.scryfall.io/art/demo.webp', display: 'https://cards.scryfall.io/display/demo.webp' },
       prints_search_uri: 'https://api.scryfall.com/cards/search?q=bolt' };
     const second = { ...exact, id: 'd0000000-0000-4000-8000-000000000001', set: 'm11', set_name: 'Magic 2011', collector_number: '149' };
+    const grindstone = { ...exact, id: 'd0000000-0000-4000-8000-000000000003', oracle_id: '97560adc-814e-450c-9ca7-f9364e910a0b',
+      name: 'Grindstone', set: 'tmp', set_name: 'Tempest', collector_number: '290', colors: [], type_line: 'Artifact', mana_cost: '{1}' };
+    const digitalGrindstone = { ...grindstone, id: 'd0000000-0000-4000-8000-000000000004',
+      set: 'tpr', set_name: 'Tempest Remastered', collector_number: '223', digital: true };
     const cardFaces = ['Sole', 'Luna'].map((name, index) => {
       const file = index === 0 ? 'demo.webp' : 'back.webp';
       return { name, type_line: 'Creature', oracle_text: `Testo di ${name}.`,
@@ -183,19 +187,41 @@ try {
         const image = path.pathname.endsWith('/back.webp') ? catalogBack : catalog;
         return new Response(Buffer.from(image.split(',')[1], 'base64'), { headers: { 'content-type': 'image/webp' } });
       }
-      if (path.pathname === '/cards/named') return path.searchParams.get('exact') === exact.name ? Response.json(exact) : new Response(null, { status: 404 });
+      if (path.pathname === '/cards/named') {
+        const card = [exact, digitalGrindstone].find(card => card.name === path.searchParams.get('exact'));
+        return card ? Response.json(card) : new Response(null, { status: 404 });
+      }
       if (path.pathname === '/cards/autocomplete') {
-        if (path.searchParams.get('q') === 'Lightning Bol') await autocompleteReady;
-        return Response.json({ data: [exact.name] });
+        const query = path.searchParams.get('q');
+        if (query === 'Lightning Bol') await autocompleteReady;
+        return Response.json({ data: [query.startsWith('Grind') ? grindstone.name : exact.name] });
       }
       if (path.pathname === '/cards/collection') return Response.json({
-        data: JSON.parse(init.body).identifiers.flatMap(item => item.name === exact.name || item.set === exact.set ? [exact] : item.name === double.name ? [double] : [])
+        data: JSON.parse(init.body).identifiers.flatMap(item => {
+          if (item.name === grindstone.name || item.set === digitalGrindstone.set) return [digitalGrindstone];
+          if (item.name === exact.name || item.set === exact.set) return [exact];
+          return item.name === double.name ? [double] : [];
+        })
       });
-      if (path.pathname === '/cards/search') return Response.json({ data: [exact, second] });
+      if (path.pathname === '/cards/search') {
+        const query = path.searchParams.get('q');
+        if (query === `oracleid:${grindstone.oracle_id} game:paper`) return Response.json({ data: [grindstone] });
+        return Response.json({ data: [exact, second] });
+      }
       const card = [exact, second, double].find(card => path.pathname === '/cards/' + card.id);
       return card ? Response.json(card) : new Response(null, { status: 404 });
     };
   }, { artFile, frameFile, pdfPath, zipPath, catalog: assetFiles.catalog, catalogBack: assetFiles.catalogBack });
+  const grindstoneSearch = await page.evaluate(() => window.proxy.search('Grindstone'));
+  assert.equal(grindstoneSearch.exact?.set, 'tmp');
+  assert.deepEqual(grindstoneSearch.choices, []);
+  const grindstoneSuggestions = await page.evaluate(() => window.proxy.search('Grindston'));
+  assert.deepEqual(grindstoneSuggestions.choices.map(card => card.set), ['tmp']);
+  const grindstoneImport = await page.evaluate(() => window.proxy.resolve([
+    { name: 'Grindstone', count: 1 }, { name: 'Grindstone', count: 1, set: 'tpr', number: '223' }
+  ]));
+  assert.equal(grindstoneImport[0]?.set, 'tmp');
+  assert.equal(grindstoneImport[1], null);
   const input = page.getByRole('searchbox', { name: 'Nome della carta da cercare' });
   const search = page.getByRole('search').getByRole('button', { name: 'Cerca carta' });
   assert.equal(await search.isDisabled(), true);
