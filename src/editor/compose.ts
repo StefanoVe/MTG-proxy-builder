@@ -166,12 +166,12 @@ function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: numb
   const alignment = align === 'center' ? .5 : align === 'right' ? 1 : 0;
   const x = r.x + r.w * alignment;
   let y = r.y + r.h / 2;
-  // Stats: center on the ink of the displayed values so neither the font nor the digits shift them vertically.
+  // Stats: center each value on its own ink so neither the font nor the digits shift it vertically.
   let inkShift = 0;
   if (inkCenter) {
-    const ref = ctx.measureText(pair ? pair.power + pair.toughness : text);
-    inkShift = (ref.actualBoundingBoxAscent - ref.actualBoundingBoxDescent) / 2;
     ctx.textBaseline = 'alphabetic';
+    const ref = ctx.measureText(text);
+    inkShift = (ref.actualBoundingBoxAscent - ref.actualBoundingBoxDescent) / 2;
     y += inkShift;
   }
   function drawValue(value: string, left: number, top: number, maxWidth?: number) {
@@ -199,12 +199,16 @@ function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: numb
     ctx.scale(scale, 1);
     ctx.textAlign = 'left';
     ctx.fillStyle = cardPaint(ctx, color, 0, fullWidth);
-    const drawCenteredValue = (value: string, left: number) => {
-      if (inkCenter) return drawValue(value, left, inkShift);
+    const drawCenteredValue = (value: string, left: number, width: number) => {
+      if (inkCenter) {
+        const ink = ctx.measureText(value);
+        return drawValue(value, left + width / 2 - (ink.actualBoundingBoxRight - ink.actualBoundingBoxLeft) / 2,
+          (ink.actualBoundingBoxAscent - ink.actualBoundingBoxDescent) / 2);
+      }
       const { actualBoundingBoxAscent, actualBoundingBoxDescent } = ctx.measureText(value);
       drawValue(value, left, (actualBoundingBoxAscent - actualBoundingBoxDescent) / 2);
     };
-    drawCenteredValue(pair.power, (powerWidth - rawPowerWidth) / 2);
+    drawCenteredValue(pair.power, 0, powerWidth);
     ctx.save();
     if (pair.color) ctx.fillStyle = cardPaint(ctx, pair.color, powerWidth + extraGap, dividerWidthPx);
     if (pair.image) {
@@ -212,14 +216,19 @@ function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: numb
       const w = pair.image.width * factor, h = pair.image.height * factor;
       ctx.drawImage(pair.image, powerWidth + extraGap + (dividerWidthPx - w) / 2, -h / 2, w, h);
     } else if (pair.divider) drawStatsRule(ctx, { x: powerWidth + extraGap, y: -glyphHeight / 2, w: dividerWidthPx, h: glyphHeight }, pair.divider);
-    else drawCenteredValue('/', powerWidth + extraGap);
+    else drawCenteredValue('/', powerWidth + extraGap, dividerWidthPx);
     ctx.restore();
-    drawCenteredValue(pair.toughness, powerWidth + dividerWidthPx + 2 * extraGap + (powerWidth - rawToughnessWidth) / 2);
+    drawCenteredValue(pair.toughness, powerWidth + dividerWidthPx + 2 * extraGap, powerWidth);
     ctx.restore();
     return;
   }
   const textWidth = Math.min(r.w, ctx.measureText(text).width);
   ctx.fillStyle = cardPaint(ctx, color, x - textWidth * alignment, textWidth);
+  if (inkCenter && align === 'center') {
+    const ink = ctx.measureText(text);
+    drawValue(text, x - (ink.actualBoundingBoxRight - ink.actualBoundingBoxLeft) / 2, y);
+    return;
+  }
   drawValue(text, x, y, r.w);
 }
 
