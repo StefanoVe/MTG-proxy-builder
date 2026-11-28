@@ -346,6 +346,7 @@ const baseMessages = {
   fill: ["Riempimento", "Fill"],
   mirrorEdges: ["Specchia i bordi", "Mirror edges"],
   solidColor: ["Colore uniforme", "Solid color"],
+  ambientBlur: ["Sfocatura ambientale", "Ambient blur"],
   bleedColor: ["Colore dell’abbondanza", "Bleed color"],
   showTrimGuide: ["Mostra linea di taglio", "Show trim guide"],
   format: ["Formato", "Format"],

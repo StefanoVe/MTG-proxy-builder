@@ -166,6 +166,7 @@ export function CardExportPanel({ project, scopeOptions, initialDraft, onBusy, o
             <label>{t('fill')}<Select value={fill} onChange={event => setDraft({ ...draft, fill: event.target.value as BleedFill })}>
               <option value="mirror">{t('mirrorEdges')}</option>
               <option value="solid">{t('solidColor')}</option>
+              <option value="ambient">{t('ambientBlur')}</option>
             </Select></label>
             {fill === 'solid' && <label className="bleed-color">{t('bleedColor')}<input type="color" value={color}
               onChange={event => setDraft({ ...draft, color: event.target.value })} /></label>}

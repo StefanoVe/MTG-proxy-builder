@@ -277,6 +277,15 @@ test('saves and reopens a Full art layout for a card and a project', () => {
   assert.deepEqual(restored.cards[0].frame, project.cards[0].frame);
 });
 
+test('legacy frame layouts receive an editable artist credit zone', () => {
+  const fullArt = templateAppearance(newTemplate('full-art'));
+  const { artist: _artist, ...legacyZones } = fullArt.zones;
+  const project = projectSchema.parse({ ...createProject(), templateAppearances: {
+    'full-art': { ...fullArt, zones: legacyZones }
+  } });
+  assert.deepEqual(project.templateAppearances?.['full-art']?.zones.artist, defaultZones.artist);
+});
+
 test('saved project templates override existing and future cards of the corresponding type', () => {
   const fullArt = newTemplate('full-art');
   const extendedArt = newTemplate('extended-art');

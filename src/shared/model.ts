@@ -9,12 +9,14 @@ const rect = z.object({
   x: z.number().min(0).max(99), y: z.number().min(0).max(99),
   w: z.number().min(1).max(100), h: z.number().min(1).max(100)
 }).refine(r => r.x + r.w <= 100.001 && r.y + r.h <= 100.001);
-export const zonesSchema = z.object({ art: rect, title: rect, type: rect, rules: rect, stats: rect });
+const defaultArtistZone = { x: 6.6, y: 92.4, w: 88, h: 2.5 };
+/** `artist` defaults preserve projects created before the credit had its own editable zone. */
+export const zonesSchema = z.object({ art: rect, title: rect, type: rect, rules: rect, stats: rect, artist: rect.default(defaultArtistZone) });
 export type Zones = z.infer<typeof zonesSchema>;
 export const defaultZones: Zones = {
   art: { x: 6, y: 11, w: 88, h: 49 }, title: { x: 7, y: 4.5, w: 86, h: 6 },
   type: { x: 7, y: 60.8, w: 86, h: 5 }, rules: { x: 8, y: 68, w: 84, h: 22 },
-  stats: { x: 75, y: 90.5, w: 18, h: 5 }
+  stats: { x: 75, y: 90.5, w: 18, h: 5 }, artist: defaultArtistZone
 };
 
 const text = z.string().max(300);
@@ -205,7 +207,7 @@ export type Printing = {
   id: string; name: string; set: string; setName: string; number: string; lang: string;
   style?: PrintingStyle; thumbnail?: string;
 };
-export type PrintSettings = { paper: 'A4' | 'Letter'; cut: boolean; backs: boolean; bleed?: 'none' | 'mpc' | 'custom'; customMm?: number; fill?: 'mirror' | 'solid'; color?: string };
+export type PrintSettings = { paper: 'A4' | 'Letter'; cut: boolean; backs: boolean; bleed?: 'none' | 'mpc' | 'custom'; customMm?: number; fill?: 'mirror' | 'solid' | 'ambient'; color?: string };
 export type ProxyAPI = {
   getLocale(): Promise<Locale>;
   setLocale(locale: Locale): Promise<void>;

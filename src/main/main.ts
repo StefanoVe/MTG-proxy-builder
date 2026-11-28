@@ -34,7 +34,6 @@ const idSchema = z.uuid();
 const imageExtensions = ['png', 'jpg', 'jpeg', 'webp'];
 const execFileAsync = promisify(execFile);
 let systemFonts: Promise<string[]> | undefined;
-let updateCheck: Promise<string | null> | undefined;
 
 async function listSystemFonts(): Promise<string[]> {
   if (!systemFonts) systemFonts = (async () => {
@@ -73,7 +72,7 @@ async function choose(options: OpenDialogOptions) {
 
 handle('locale:get', z.tuple([]), () => locale);
 handle('locale:set', z.tuple([z.enum(locales)]), next => { locale = next; });
-handle('updates:check', z.tuple([]), () => updateCheck ??= checkForUpdate(app.getVersion()));
+handle('updates:check', z.tuple([]), () => checkForUpdate(app.getVersion()));
 handle('updates:open-releases', z.tuple([]), () => shell.openExternal(releasesURL));
 handle('projects:list', z.tuple([]), listProjects);
 handle('fonts:list', z.tuple([]), listSystemFonts);

@@ -114,7 +114,7 @@ export function PrintPanel({ project, scopeOptions, initialDraft, onExport, onBu
         }} /></label>}
         {settings.bleed && settings.bleed !== 'none' && <>
           <label>{t('fill')}<Select disabled={working} value={settings.fill ?? 'mirror'} onChange={event => setSettings({ ...settings, fill: event.target.value as NonNullable<PrintSettings['fill']> })}>
-            <option value="mirror">{t('mirrorEdges')}</option><option value="solid">{t('solidColor')}</option>
+            <option value="mirror">{t('mirrorEdges')}</option><option value="solid">{t('solidColor')}</option><option value="ambient">{t('ambientBlur')}</option>
           </Select></label>
           {settings.fill === 'solid' && <label className="bleed-color">{t('bleedColor')}<input type="color" disabled={working} value={settings.color ?? '#000000'} onChange={event => setSettings({ ...settings, color: event.target.value })} /></label>}
         </>}

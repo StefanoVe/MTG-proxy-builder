@@ -11,12 +11,12 @@ import type { PrintSettings } from '../shared/model.js';
 import { Icon } from './Icon.js';
 import './preview.css';
 
-export type SelectableZone = 'art' | 'title' | 'type' | 'rules' | 'stats';
+export type SelectableZone = keyof Zones;
 type Corner = 'nw' | 'ne' | 'sw' | 'se';
 
 const corners: readonly Corner[] = ['nw', 'ne', 'sw', 'se'];
 /** Hit-test priority: the smaller elements sit on top of the artwork. */
-const selectableZones: readonly SelectableZone[] = ['stats', 'title', 'type', 'rules', 'art'];
+const selectableZones: readonly SelectableZone[] = ['stats', 'artist', 'title', 'type', 'rules', 'art'];
 const selectSlop = 4;
 
 function isSelectableZone(value?: string): value is SelectableZone {

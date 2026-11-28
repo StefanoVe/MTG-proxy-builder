@@ -475,15 +475,7 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
   }
   const result = hidden.has('rules') || drawRules(ctx, card.fields.rules, box(zones.rules), colorForText('rules'), icons, font,
     textSize('rules') ?? defaultFrameTextSizes.rules, textAlign('rules'));
-  if (hidden.has('artist')) {
-    // The artist credit is hidden on this card.
-  } else if (template) {
-    drawLine('artist', card.fields.artist, { x: width * 0.06, y: height * 0.965, w: width * 0.88, h: 23 });
-  } else if (!overlay) {
-    drawLine('artist', card.fields.artist, { x: width * .066, y: height * .924, w: width * .88, h: height * .025 }, 21);
-  } else {
-    drawLine('artist', card.fields.artist, { x: 26, y: height - 33, w: width - 52, h: 29 }, 20);
-  }
+  if (!hidden.has('artist')) drawLine('artist', card.fields.artist, box(zones.artist), template ? 19 : 20);
   if ((template || set) && !art && !hidden.has('art')) return { warning: 'addArtHelp' };
   return result && (hidden.has('title') || mana.length === 0 || diameter >= 7) ? {} : { warning: 'textOverflow' };
 }

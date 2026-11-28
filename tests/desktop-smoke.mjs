@@ -562,8 +562,12 @@ try {
   await frameTab.click();
   await pressElement('Firma');
   await alignGroup().waitFor();
-  assert.equal(await zoneX.count(), 0);
-  assert.equal(await page.locator('.stage .zone-guide').count(), 0);
+  await page.locator('.stage .zone-guide').waitFor();
+  await openExactValues();
+  await zoneX.waitFor();
+  await zoneX.fill('12');
+  await zoneX.press('Enter');
+  await until(() => zoneX.inputValue(), value => value === '12');
   await pressElement('Testo');
   await openExactValues();
   await zoneX.waitFor();
@@ -576,7 +580,7 @@ try {
     const [project] = await window.proxy.projects();
     const saved = await window.proxy.open(project.id);
     const card = saved.cards[0];
-    return card.textAlignOverrides?.rules === 'center' && card.textAlignOverrides.title === 'left'
+    return card.zoneOverrides?.artist?.x === 12 && card.textAlignOverrides?.rules === 'center' && card.textAlignOverrides.title === 'left'
       && card.frame.set.appearance.textStyles.title.align === 'right';
   });
   await chooseAlign('Come nella cornice');

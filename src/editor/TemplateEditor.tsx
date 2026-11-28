@@ -32,7 +32,7 @@ type AppearanceUpdate = (appearance: TemplateAppearance) => TemplateAppearance;
 type Translate = (key: MessageKey) => string;
 type Align = 'left' | 'center' | 'right';
 type SectionId = 'images' | 'essentials' | 'text' | 'shading' | 'dividers' | 'decorations' | 'symbols' | 'cardColors' | 'stats' | 'layout';
-type EditorZone = keyof Zones | 'artist';
+type EditorZone = keyof Zones;
 type Motif = Extract<FrameDecoration['source'], { kind: 'motif' }>['motif'];
 export type FrameEditorTab = Template | 'custom';
 export type EditorPreviewState = {
@@ -474,7 +474,7 @@ export function TemplateEditor({ tab, selectTab, appearance, defaultAppearance, 
   }
 
   // Sections: "Immagini" exists only for custom frames, the others need a chosen frame.
-  const rectZone = zone === undefined || zone === 'artist' ? undefined : zone;
+  const rectZone = zone;
   const textArea: FrameTextArea | undefined = zone === undefined || zone === 'art' ? undefined : zone;
   const opaqueWarning = !!decoration && decoration.tint !== 'original' && decoration.source.kind === 'image'
     && opaqueAssets.has(decoration.source.asset);

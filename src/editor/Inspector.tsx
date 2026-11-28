@@ -22,7 +22,7 @@ import { VisualChoice } from './VisualChoice.js';
 import type { VisualOption } from './VisualChoice.js';
 import './inspector.css';
 
-export const zoneLabels: Record<keyof Zones, MessageKey> = { art: 'art', title: 'header', type: 'type', rules: 'text', stats: 'stats' };
+export const zoneLabels: Record<keyof Zones, MessageKey> = { art: 'art', title: 'header', type: 'type', rules: 'text', stats: 'stats', artist: 'elementSignature' };
 export type FrameElement = keyof Zones | FrameTextArea;
 const visibleSectionLabels: Record<keyof Zones | 'artist', MessageKey> = {
   art: 'sectionArt', title: 'sectionName', type: 'sectionType', rules: 'sectionText', stats: 'sectionStats', artist: 'sectionArtist'
@@ -219,7 +219,7 @@ export function Inspector({ card, renderedCard, sharedFrame, projectFrame, proje
   const printingTemplateName = t(templateNames[printingEditFrame.template]);
   const elementZone = zone === 'art' ? undefined : zone;
   const textArea = elementZone;
-  const layoutZone = original || elementZone === 'artist' ? undefined : elementZone;
+  const layoutZone = original ? undefined : elementZone;
   const sizeArea = elementZone && elementZone !== 'stats' ? elementZone : undefined;
   const mirrored = !!mirror?.value;
   const appearance = frameAppearance(renderedCard.frame);

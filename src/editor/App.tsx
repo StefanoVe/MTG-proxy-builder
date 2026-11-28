@@ -233,7 +233,7 @@ export function App() {
     setZone(undefined);
   }
   const frameTabActive = inspector.tab === 'frame';
-  const previewZone = !mirror && zone !== 'artist' && (frameTabActive || (inspector.tab === 'art' && zone === 'art')) ? zone : undefined;
+  const previewZone = !mirror && (frameTabActive || (inspector.tab === 'art' && zone === 'art')) ? zone : undefined;
   const shadingHandles = editorGuide?.kind === 'shading' && editedAppearance ? [
     { id: 'topEffect', y: effectExtent(editedAppearance, 'topEffect'), label: t('shadingHandleTop') },
     { id: 'bottomEffect', y: 100 - effectExtent(editedAppearance, 'bottomEffect'), label: t('shadingHandleBottom') }
@@ -715,7 +715,7 @@ export function App() {
   }
 
   function changeZone(rect: Rect) {
-    if (!selectedRendered || !zone || zone === 'artist' || mirror) return;
+    if (!selectedRendered || !zone || mirror) return;
     if (selectedRendered.frame.kind === 'printing' && zone === 'art') {
       updateSide(selectedRendered.id, { frame: { ...selectedRendered.frame, artZone: rect } }, true);
     } else if (selectedRendered.frame.kind !== 'printing') {

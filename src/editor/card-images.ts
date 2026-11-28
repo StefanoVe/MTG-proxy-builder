@@ -4,7 +4,7 @@ import { cardHeight, cardWidth } from '../shared/print.js';
 import { compose } from './compose.js';
 
 export type Bleed = 'none' | 'mpc' | 'custom';
-export type BleedFill = 'mirror' | 'solid';
+export type BleedFill = 'mirror' | 'solid' | 'ambient';
 export type ImageFormat = 'png' | 'jpg';
 
 export function imageGeometry(dpi: number, bleed: Bleed, customMm: number) {
@@ -46,6 +46,19 @@ export function drawCardImage(canvas: HTMLCanvasElement, source: HTMLCanvasEleme
   if (margin && fill === 'solid') {
     context.fillStyle = color;
     context.fillRect(0, 0, totalWidth, totalHeight);
+  }
+  if (margin && fill === 'ambient') {
+    // Nested zoomed copies of the whole card, centered, each blurrier than the one above it.
+    const steps = 3;
+    const blur = margin / 4;
+    const short = Math.min(width, height);
+    const outermost = (short + 2 * (margin + 2 * blur * steps)) / short;
+    for (let step = steps; step >= 1; step--) {
+      const zoom = 1 + (outermost - 1) * step / steps;
+      context.filter = `blur(${Math.round(blur * step)}px)`;
+      context.drawImage(source, (totalWidth - width * zoom) / 2, (totalHeight - height * zoom) / 2, width * zoom, height * zoom);
+    }
+    context.filter = 'none';
   }
   context.drawImage(source, margin, margin, width, height);
   if (!margin || fill !== 'mirror') return;
