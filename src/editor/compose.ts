@@ -156,7 +156,7 @@ function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: numb
   ctx.textBaseline = 'middle';
   const metrics = ctx.measureText(text);
   const dividerWidth = pair && !pair.divider && !pair.image ? ctx.measureText('/').width / size : .62;
-  const baseWidth = pair ? ctx.measureText(pair.power).width + ctx.measureText(pair.toughness).width + size * dividerWidth : metrics.width;
+  const baseWidth = pair ? 2 * Math.max(ctx.measureText(pair.power).width, ctx.measureText(pair.toughness).width) + size * dividerWidth : metrics.width;
   const gapForFit = pair ? Math.min(dividerGap, Math.max(0, (r.w - baseWidth) / 2)) : 0;
   const measuredWidth = baseWidth + 2 * gapForFit;
   const fitted = Math.min(size, size * r.w / measuredWidth);
@@ -178,10 +178,12 @@ function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: numb
     ctx.fillText(value, left, top, maxWidth);
   }
   if (pair) {
-    const powerWidth = ctx.measureText(pair.power).width;
+    const rawPowerWidth = ctx.measureText(pair.power).width;
+    const rawToughnessWidth = ctx.measureText(pair.toughness).width;
+    const powerWidth = Math.max(rawPowerWidth, rawToughnessWidth);
     const dividerWidthPx = finalSize * dividerWidth;
-    const extraGap = Math.min(dividerGap, Math.max(0, (r.w - powerWidth - dividerWidthPx - ctx.measureText(pair.toughness).width) / 2));
-    const fullWidth = powerWidth + dividerWidthPx + 2 * extraGap + ctx.measureText(pair.toughness).width;
+    const extraGap = Math.min(dividerGap, Math.max(0, (r.w - 2 * powerWidth - dividerWidthPx) / 2));
+    const fullWidth = 2 * powerWidth + dividerWidthPx + 2 * extraGap;
     const scale = Math.min(1, r.w / fullWidth);
     const glyphHeight = Math.min(finalSize * .9, r.h);
     ctx.save();
@@ -193,7 +195,7 @@ function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: numb
       const { actualBoundingBoxAscent, actualBoundingBoxDescent } = ctx.measureText(value);
       drawValue(value, left, (actualBoundingBoxAscent - actualBoundingBoxDescent) / 2);
     };
-    drawCenteredValue(pair.power, 0);
+    drawCenteredValue(pair.power, (powerWidth - rawPowerWidth) / 2);
     ctx.save();
     if (pair.color) ctx.fillStyle = cardPaint(ctx, pair.color, powerWidth + extraGap, dividerWidthPx);
     if (pair.image) {
@@ -203,7 +205,7 @@ function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: numb
     } else if (pair.divider) drawStatsRule(ctx, { x: powerWidth + extraGap, y: -glyphHeight / 2, w: dividerWidthPx, h: glyphHeight }, pair.divider);
     else drawCenteredValue('/', powerWidth + extraGap);
     ctx.restore();
-    drawCenteredValue(pair.toughness, powerWidth + dividerWidthPx + 2 * extraGap);
+    drawCenteredValue(pair.toughness, powerWidth + dividerWidthPx + 2 * extraGap + (powerWidth - rawToughnessWidth) / 2);
     ctx.restore();
     return;
   }
