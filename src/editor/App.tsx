@@ -17,7 +17,7 @@ import { FrameGallery } from './FrameGallery.js';
 import { Batch } from './Batch.js';
 import { Inspector } from './Inspector.js';
 import type { FrameElement, InspectorTab } from './Inspector.js';
-import { Preview, PreviewGuidesButton } from './Preview.js';
+import { HoldCompareButton, Preview, PreviewGuidesButton } from './Preview.js';
 import { PrintPanel } from './PrintPanel.js';
 import type { PrintDraft } from './PrintPanel.js';
 import { PrintChoices } from './PrintChoices.js';
@@ -224,6 +224,7 @@ export function App() {
     source: { ...editorExample.source, colors: editorSampleColor === 'C' ? [] : [editorSampleColor] },
     fields: { ...editorExample.fields, mana: editorSampleColor === 'C' ? '{3}' : '{2}{' + editorSampleColor + '}' } };
   const editorStageCard = editedAppearance && withStatsSample({ ...editorSampleCard, frame: editorFrameFor(editedAppearance), frameOverride: true, statsOverrides: undefined }, editorPreview.statsSample);
+  const [editorComparing, setEditorComparing] = useState(false);
   const editorCompareCard = editorStageCard && editorDefaultAppearance && { ...editorStageCard, frame: editorFrameFor(editorDefaultAppearance) };
   const editorGuide = editorPreview.guide;
   const focusMode = editorOpen && !!editedAppearance;
@@ -1046,13 +1047,13 @@ export function App() {
       }}>
         {editorOpen && editorStageCard ? <>
           <div className="stage-heading"><h1>{editorStageCard.fields.name || t('untitledCard')}</h1></div>
-          <div className="stage-sheet"><div className="stage-preview-actions"><PreviewGuidesButton visible={showPreviewGuides} toggle={togglePreviewGuides} /></div><div className="stage-current">
+          <div className="stage-sheet"><div className="stage-preview-actions"><PreviewGuidesButton visible={showPreviewGuides} toggle={togglePreviewGuides} />{editorCompareCard && <HoldCompareButton onHold={setEditorComparing} />}</div><div className="stage-current">
             <Preview card={editorStageCard} handles={shadingHandles} onHandle={moveShadingHandle} showThirds={showPreviewGuides} hideWarning={!editorBase}
               zone={editorGuide?.kind === 'zone' ? editorGuide.zone : undefined} guide={editorDecoration?.rect}
               onZone={editorGuide ? editEditorGuide : undefined}
               onSelectElement={zone => setRequestedZone(previous => ({ zone, nonce: (previous?.nonce ?? 0) + 1 }))}
               selectedElement={editorGuide?.kind === 'zone' ? editorGuide.zone : undefined}
-              compareCard={editorCompareCard} compareLabel={t('editorCompareDefault')} />
+              compareCard={editorCompareCard} comparing={editorComparing} />
           </div></div>
         </> : card && renderedCard ? <>
           <div className="stage-heading">

@@ -27,17 +27,6 @@
 
 .preview-wrap .card-preview.has-zone-hover { cursor: pointer; }
 
-.preview-compare-button {
-  position: absolute; left: 6px; top: 6px; z-index: 3;
-  padding: 3px 9px; border: 1px solid var(--control-rule); border-radius: 999px;
-  background: var(--surface); color: var(--ink);
-  font: inherit; font-size: 11px; line-height: 1.3; white-space: nowrap;
-  cursor: pointer; user-select: none; touch-action: none;
-  box-shadow: 0 2px 8px #0009;
-}
-.preview-compare-button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.preview-compare-button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-
 /* Horizontal handles: a zero-height row at `top: y%` holding an 8px hit strip, the 2px line and the grip. */
 .card-handle { position: absolute; left: 0; right: 0; height: 0; z-index: 2; touch-action: none; }
 .card-handle-hit { position: absolute; left: 0; right: 0; top: -4px; height: 8px; cursor: ns-resize; }

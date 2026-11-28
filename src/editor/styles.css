@@ -212,7 +212,7 @@ label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .stage-sheet.is-comparing { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .stage-preview-actions { position: absolute; top: 8px; right: 12px; z-index: 1; display: flex; gap: 6px; }
 .compare-button[aria-pressed="true"] { border-color: var(--accent); }
-button.preview-guides-button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.preview-guides-button[aria-pressed="true"], button.hold-compare-button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .stage-current, .stage-original { display: grid; place-items: center; min-width: 0; width: 100%; }
 .stage-current > .preview-wrap, .stage-original img { width: min(100%, 71.6cqh, 540px); position: relative; }
 .stage-original { gap: 4px; color: var(--muted); font-size: 12px; }

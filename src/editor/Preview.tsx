@@ -138,7 +138,20 @@ export function PreviewGuidesButton({ visible, toggle }: { visible: boolean; tog
     aria-pressed={visible} onClick={toggle}><Icon name="grid" /></button>;
 }
 
-export function Preview({ card, back = false, showThirds = false, onCrop, zone, guide, onZone, hideWarning, hideArtworkWarning, bleedSettings, sheet = false, onSelectElement, selectedElement, compareCard, compareLabel, handles, onHandle }: {
+export function HoldCompareButton({ onHold }: { onHold: (on: boolean) => void }) {
+  const { t } = useI18n();
+  const label = t('editorCompareDefault');
+  const [held, setHeld] = useState(false);
+  function hold(on: boolean) { setHeld(on); onHold(on); }
+  return <button type="button" className="icon-button hold-compare-button" aria-label={label} title={label} aria-pressed={held}
+    onPointerDown={event => { if (event.button === 0) hold(true); }}
+    onPointerUp={() => hold(false)} onPointerLeave={() => hold(false)} onPointerCancel={() => hold(false)}
+    onKeyDown={event => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); hold(true); } }}
+    onKeyUp={event => { if (event.key === ' ' || event.key === 'Enter') hold(false); }}
+    onBlur={() => hold(false)}><Icon name="compare" /></button>;
+}
+
+export function Preview({ card, back = false, showThirds = false, onCrop, zone, guide, onZone, hideWarning, hideArtworkWarning, bleedSettings, sheet = false, onSelectElement, selectedElement, compareCard, comparing = false, handles, onHandle }: {
   card: Card;
   bleedSettings?: PrintSettings;
   sheet?: boolean;
@@ -154,9 +167,9 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
   onSelectElement?: (zone: SelectableZone) => void;
   /** Zone to highlight as the current selection. */
   selectedElement?: string;
-  /** Shown instead of `card` while the hold-to-compare button is held. */
+  /** Shown instead of `card` while `comparing` is true. */
   compareCard?: Card;
-  compareLabel?: string;
+  comparing?: boolean;
   /** Horizontal handles drawn over the card, hidden while comparing. */
   handles?: PreviewHandle[];
   /** Called with the handle id and its new `y` (percent of the card height, step 0.5). */
@@ -165,7 +178,6 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
   const { t, locale } = useI18n();
   const ref = useRef<HTMLCanvasElement>(null);
   const [warning, setWarning] = useState<Error>();
-  const [comparing, setComparing] = useState(false);
   const [hover, setHover] = useState<SelectableZone>();
   const drag = useRef<{ x: number; y: number; crop: Card['crop']; rect?: Rect; corner?: Corner } | null>(null);
   const press = useRef<{ x: number; y: number } | null>(null);
@@ -264,9 +276,6 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
     const dy = direction[1] * step;
     onZone(event.altKey ? resizeRect(rect, 'se', dx, dy) : moveRect(rect, dx, dy));
   }
-  function holdCompare(on: boolean) {
-    if (compareCard) setComparing(on);
-  }
 
   return <div className="preview-wrap">
     <div className={`card-preview ${canDrag ? 'is-draggable' : ''} ${selectable && hover ? 'has-zone-hover' : ''}`} style={!sheet && sideOrientation(card, back) === 'landscape' ? { aspectRatio: '88 / 63' } : undefined}
@@ -286,15 +295,6 @@ export function Preview({ card, back = false, showThirds = false, onCrop, zone, 
         {corners.map(corner => <span key={corner} className={`zone-resize zone-resize-${corner}`} aria-hidden="true" />)}
       </div>}
       {live && handles?.map(handle => <CardHandle key={handle.id} handle={handle} onHandle={onHandle} />)}
-      {compareCard && <button type="button" className="preview-compare-button" aria-pressed={isCompare}
-        onPointerDown={event => { event.stopPropagation(); if (event.button === 0) holdCompare(true); }}
-        onPointerUp={event => { event.stopPropagation(); holdCompare(false); }}
-        onPointerMove={event => event.stopPropagation()}
-        onPointerLeave={() => holdCompare(false)}
-        onPointerCancel={() => holdCompare(false)}
-        onKeyDown={event => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); holdCompare(true); } }}
-        onKeyUp={event => { if (event.key === ' ' || event.key === 'Enter') holdCompare(false); }}
-        onBlur={() => holdCompare(false)}>{compareLabel ?? t('previewCompareHold')}</button>}
     </div>
     {warning && !(hideArtworkWarning && warning instanceof LocalizedError && warning.key === 'addArtHelp')
       && <span className="preview-warning" role="status">{errorMessage(warning, locale)}</span>}
