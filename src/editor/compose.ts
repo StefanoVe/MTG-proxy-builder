@@ -148,7 +148,7 @@ function artwork(ctx: CanvasRenderingContext2D, image: HTMLImageElement, r: Rect
 type StatsPair = { power: string; toughness: string; divider?: Parameters<typeof drawStatsRule>[2]; image?: HTMLCanvasElement | HTMLImageElement; color?: CardPaint };
 
 function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: number, font: string, color: CardPaint,
-  align: CanvasTextAlign, customSize?: number, pair?: StatsPair, outline?: string | null, dividerGap = 0) {
+  align: CanvasTextAlign, customSize?: number, pair?: StatsPair, outline?: string | null, dividerGap = 0, inkCenter = false) {
   if (!text || r.w < 2) return;
   const size = customSize ?? Math.min(max, r.h * 0.72);
   ctx.font = `${size}px ${font}`;
@@ -165,7 +165,15 @@ function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: numb
   ctx.font = `${finalSize}px ${font}`;
   const alignment = align === 'center' ? .5 : align === 'right' ? 1 : 0;
   const x = r.x + r.w * alignment;
-  const y = r.y + r.h / 2;
+  let y = r.y + r.h / 2;
+  // Stats: center on the ink of the displayed values so neither the font nor the digits shift them vertically.
+  let inkShift = 0;
+  if (inkCenter) {
+    const ref = ctx.measureText(pair ? pair.power + pair.toughness : text);
+    inkShift = (ref.actualBoundingBoxAscent - ref.actualBoundingBoxDescent) / 2;
+    ctx.textBaseline = 'alphabetic';
+    y += inkShift;
+  }
   function drawValue(value: string, left: number, top: number, maxWidth?: number) {
     if (outline) {
       ctx.save();
@@ -187,11 +195,12 @@ function fitLine(ctx: CanvasRenderingContext2D, text: string, r: Rect, max: numb
     const scale = Math.min(1, r.w / fullWidth);
     const glyphHeight = Math.min(finalSize * .9, r.h);
     ctx.save();
-    ctx.translate(x - fullWidth * scale * alignment, y);
+    ctx.translate(x - fullWidth * scale * alignment, r.y + r.h / 2);
     ctx.scale(scale, 1);
     ctx.textAlign = 'left';
     ctx.fillStyle = cardPaint(ctx, color, 0, fullWidth);
     const drawCenteredValue = (value: string, left: number) => {
+      if (inkCenter) return drawValue(value, left, inkShift);
       const { actualBoundingBoxAscent, actualBoundingBoxDescent } = ctx.measureText(value);
       drawValue(value, left, (actualBoundingBoxAscent - actualBoundingBoxDescent) / 2);
     };
@@ -471,7 +480,7 @@ export async function compose(canvas: HTMLCanvasElement, card: Card, back = fals
         ctx.clip();
       }
       fitLine(ctx, stats, textRect, defaultFrameTextSizes.stats, font, autoTextColors.stats ? cardColor : style.ink ?? textColor, textAlign('stats'),
-        style.size ?? textSize('stats'), pair, style.outline, style.dividerGap);
+        style.size ?? textSize('stats'), pair, style.outline, style.dividerGap, true);
       if (hasPadding) ctx.restore();
     }
   }
